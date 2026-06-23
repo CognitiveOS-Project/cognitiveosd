@@ -1,0 +1,20 @@
+# Go
+/bin/
+/tmp/
+*.exe
+*.test
+*.out
+/vendor/
+/go/pkg/
+*.sum
+go.work
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
