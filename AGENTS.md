@@ -1,14 +1,47 @@
 # cognitiveosd — System Daemon
 
-The background daemon that manages CognitiveOS lifecycle. Runs as PID 1 or a supervised system service.
+Background daemon that manages CognitiveOS lifecycle. Runs as PID 1 or supervised system service.
 
-## Responsibilities
+## Architecture
 
-- **5 System Codes**: wake, idle, security-shutdown, reset, unlock
-- **Resource Audits**: monitors RAM, storage, CPU load; informs decision-making
-- **MCP Supervisor**: launches, monitors, restarts MCP server processes from installed patches
-- **Wide Model Lifecycle**: tracks which Wide Model is active, manages download/update flow
-- **Raw Model Interface**: provides the system API that cli communicates with
+```
+cmd/cognitiveosd/         — Entry point, flag/env parsing
+internal/daemon/
+  daemon.go               — Core: state machine, startup/shutdown, message dispatch
+  socket.go               — Unix socket listener at /cognitiveos/run/daemon.sock
+  types.go                — All message envelope types (18+ JSON message types)
+  handlers.go             — Message dispatch for all 12 socket message types
+  mcp_lifecycle.go        — MCP server process lifecycle (spawn, discover, invoke, kill)
+  wide_client.go          — HTTP client to coginfer (api/generate, api/pull, api/delete)
+  audit.go                — Hardware audit loop (/proc/meminfo, statfs, /sys/class/net)
+internal/config/          — Configuration with env override support
+```
+
+## Message Protocol
+
+JSON-over-Unix socket at `/cognitiveos/run/daemon.sock`. Newline-delimited JSON envelopes.
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| input_forward | cli → daemon | Forward human input to Wide Model |
+| output_deliver | daemon → cli | Wide Model response |
+| system_code | cli → daemon | wake/idle/security/reset/unlock |
+| mcp_register | MCP → daemon | Tool capability announcement |
+| mcp_invoke | daemon → MCP | Tool execution request |
+| mcp_result | MCP → daemon | Tool execution result |
+| audit_request | cli → daemon | Trigger hardware audit |
+| audit_report | daemon → cli | Resource snapshot |
+| status_request | cli → daemon | Daemon status |
+| wide_model_load | daemon → inference | Load Wide Model |
+| wide_model_unload | daemon → inference | Unload Wide Model |
+
+## System Codes
+
+- **wake**: Transition from idle to listening
+- **idle**: Unload Wide Model, suspend MCP servers
+- **security**: Kill all processes, power off peripherals
+- **reset**: Wipe data partitions, reboot
+- **unlock**: Validate unlock code
 
 ## Build
 
@@ -16,8 +49,17 @@ The background daemon that manages CognitiveOS lifecycle. Runs as PID 1 or a sup
 go build -o bin/cognitiveosd ./cmd/cognitiveosd
 ```
 
-## Communication
+## Configuration
 
-- Listens on a Unix socket at `/cognitiveos/run/daemon.sock`
-- JSON messages for: input forwarding, system code triggers, audit results, status queries
-- cli connects as a client; MCP servers register via the socket
+Environment variables / flags:
+
+| Env | Flag | Default |
+|-----|------|---------|
+| COGNITIVEOS_SOCKET | --socket | /cognitiveos/run/daemon.sock |
+| COGNITIVEOS_MODEL_DIR | --models | /cognitiveos/models |
+| COGNITIVEOS_PATCH_DIR | --patches | /cognitiveos/patches |
+| COGNITIVEOS_RUN_DIR | --run | /cognitiveos/run |
+| COGNITIVEOS_LOG_DIR | --log-dir | /cognitiveos/logs |
+| COGNITIVEOS_INFERENCE_URL | --inference | http://127.0.0.1:11434 |
+| COGNITIVEOS_MCP_BIN_DIR | --mcp-bin | /cognitiveos/bin |
+| | --audit-interval | 60 |
