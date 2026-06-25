@@ -33,6 +33,7 @@ type Daemon struct {
 	mcpMgr   *MCPManager
 	auditor  *Auditor
 	wmClient *WideModelClient
+	rmClient *RawModelClient
 
 	clients   map[string]*ClientConn
 	clientsMu sync.RWMutex
@@ -73,6 +74,7 @@ func (d *Daemon) Run() error {
 	d.mcpMgr = NewMCPManager(d)
 	d.auditor = NewAuditor(d)
 	d.wmClient = NewWideModelClient(d)
+	d.rmClient = NewRawModelClient(d)
 
 	listener, err := NewSocketListener(d)
 	if err != nil {
@@ -84,6 +86,12 @@ func (d *Daemon) Run() error {
 
 	initialAudit := d.auditor.Collect()
 	d.Log.Printf("initial audit: %d MB RAM available", initialAudit.RAM.AvailableMB)
+
+	if err := d.rmClient.Connect(); err != nil {
+		d.Log.Printf("raw model not available: %v", err)
+	} else {
+		d.Log.Println("raw model connected")
+	}
 
 	d.auditor.Start()
 
@@ -120,6 +128,7 @@ func (d *Daemon) shutdown(reason string) {
 	d.broadcast(NewEnvelope("shutdown_notice", "cognitiveosd", ShutdownNoticePayload{Reason: reason}))
 
 	d.mcpMgr.ShutdownAll()
+	d.rmClient.Close()
 
 	d.listener.Close()
 
