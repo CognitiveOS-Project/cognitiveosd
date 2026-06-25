@@ -233,7 +233,7 @@ func (m *MCPManager) ShutdownAll() {
 
 	for name, server := range m.servers {
 		if server.Process != nil && server.Process.Process != nil {
-			server.Process.Process.Signal(syscall.SIGTERM)
+			server.Process.Process.Signal(syscall.SIGTERM) // best-effort signal
 			go func(p *os.Process, n string) {
 				done := make(chan error, 1)
 				go func() {
@@ -243,7 +243,7 @@ func (m *MCPManager) ShutdownAll() {
 				select {
 				case <-done:
 				case <-time.After(2 * time.Second):
-					p.Kill()
+					p.Kill() // best-effort kill
 				}
 			}(server.Process.Process, name)
 		}
@@ -259,7 +259,9 @@ func (s *MCPServer) DiscoverTools(encoder *json.Encoder, scanner *bufio.Scanner)
 		"method":  "mcp.list_tools",
 	}
 
-	encoder.Encode(rpcReq)
+	if err := encoder.Encode(rpcReq); err != nil {
+		return
+	}
 
 	if scanner.Scan() {
 		var resp map[string]interface{}
