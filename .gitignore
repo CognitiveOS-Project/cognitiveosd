@@ -7,6 +7,7 @@
 /vendor/
 /go/pkg/
 *.sum
+!go.sum
 go.work
 
 # OS
@@ -21,3 +22,4 @@ Thumbs.db
 
 # Editor backups
 * 2.*
+cognitiveosd

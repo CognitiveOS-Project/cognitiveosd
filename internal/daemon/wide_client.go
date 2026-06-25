@@ -38,7 +38,9 @@ func (w *WideModelClient) Generate(prompt string) (string, error) {
 	}
 
 	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(body)
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		return "", fmt.Errorf("encode request: %w", err)
+	}
 
 	resp, err := w.client.Post(w.daemon.Config.InferenceURL+"/api/generate", "application/json", &buf)
 	if err != nil {
@@ -78,7 +80,9 @@ func (w *WideModelClient) Load(modelPath string) error {
 	}
 
 	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(body)
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		return fmt.Errorf("encode load request: %w", err)
+	}
 
 	resp, err := w.client.Post(w.daemon.Config.InferenceURL+"/api/pull", "application/json", &buf)
 	if err != nil {
@@ -104,7 +108,9 @@ func (w *WideModelClient) Unload(reason string) error {
 	}
 
 	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(body)
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		return fmt.Errorf("encode unload request: %w", err)
+	}
 
 	req, err := http.NewRequest("DELETE", w.daemon.Config.InferenceURL+"/api/delete", &buf)
 	if err != nil {
