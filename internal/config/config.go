@@ -6,22 +6,24 @@ import (
 )
 
 type Config struct {
-	SocketPath  string
-	PidFilePath string
-	LogFile     string
-	ModelDir    string
-	PatchDir    string
-	RunDir      string
-	AuditDir    string
-	LogDir      string
-	InferenceURL string
+	SocketPath    string
+	RawSocketPath string
+	PidFilePath   string
+	LogFile       string
+	ModelDir      string
+	PatchDir      string
+	RunDir        string
+	AuditDir      string
+	LogDir        string
+	InferenceURL  string
 	AuditInterval int
-	MCPBinDir   string
-	MCPBridges  []string
+	MCPBinDir     string
+	MCPBridges    []string
 }
 
 var Default = Config{
 	SocketPath:    "/cognitiveos/run/daemon.sock",
+	RawSocketPath: "/cognitiveos/run/raw.sock",
 	PidFilePath:   "/cognitiveos/run/cognitiveosd.pid",
 	LogFile:       "/cognitiveos/logs/cognitiveosd.log",
 	ModelDir:      "/cognitiveos/models",

@@ -60,6 +60,19 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	code := strings.ToLower(payload.Code)
 	effect := ""
 
+	if d.rmClient.IsReady() {
+		status, action, err := d.rmClient.ValidateSystemCode(code, payload.Origin)
+		if err != nil {
+			d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
+			return
+		}
+		if status != "valid" {
+			d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
+			return
+		}
+		_ = action
+	}
+
 	switch code {
 	case "wake":
 		effect = "waking from idle state"
@@ -89,7 +102,20 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 			d.SendError(env, conn, "E_INVALID_PAYLOAD", "unlock_code required for unlock code")
 			return
 		}
-		effect = fmt.Sprintf("unlock code %s accepted", payload.UnlockCode)
+		if d.rmClient.IsReady() {
+			codeStatus, msg, err := d.rmClient.CheckUnlockCode(payload.UnlockCode, "wide-model")
+			if err != nil {
+				d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
+				return
+			}
+			if codeStatus != "accepted" {
+				d.SendError(env, conn, "E_UNLOCK_DENIED", msg)
+				return
+			}
+			effect = msg
+		} else {
+			effect = fmt.Sprintf("unlock code %s accepted", payload.UnlockCode)
+		}
 
 	default:
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", fmt.Sprintf("unknown system code: %s", code))
