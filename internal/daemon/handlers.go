@@ -197,7 +197,9 @@ func (d *Daemon) handleAuditRequest(env Envelope, conn *ClientConn) {
 	}
 	respPayload, _ := json.Marshal(payload)
 	resp.Payload = respPayload
-	conn.Send(resp)
+	if err := conn.Send(resp); err != nil {
+		d.Log.Printf("send audit_report: %v", err)
+	}
 }
 
 func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
@@ -226,5 +228,7 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 	}
 	respPayload, _ := json.Marshal(payload)
 	resp.Payload = respPayload
-	conn.Send(resp)
+	if err := conn.Send(resp); err != nil {
+		d.Log.Printf("send status_response: %v", err)
+	}
 }
