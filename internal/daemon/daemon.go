@@ -5,13 +5,18 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/CognitiveOS-Project/cognitiveosd/internal/config"
 )
+
+const idleTimeoutDuration = 5 * time.Minute
 
 type State string
 
@@ -39,8 +44,10 @@ type Daemon struct {
 	clients   map[string]*ClientConn
 	clientsMu sync.RWMutex
 
-	signalCh chan os.Signal
-	done     chan struct{}
+	signalCh    chan os.Signal
+	done        chan struct{}
+	idleTimer   *time.Timer
+	lastRequest time.Time
 
 	Log *log.Logger
 }
@@ -98,6 +105,19 @@ func (d *Daemon) Run() error {
 	d.mcpMgr.SpawnCoreBridges()
 	d.mcpMgr.StartHealthchecks()
 
+	d.scanPatches()
+
+	if err := d.loadWideModel(); err != nil {
+		d.Log.Printf("WARN: auto-load Wide Model: %v", err)
+	}
+
+	d.startIdleTimer()
+
+	d.broadcast(NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		SessionID:   "system",
+		Content:     "CognitiveOS ready",
+		ContentType: "text",
+	}))
 	d.Log.Println("cognitiveosd ready")
 
 	signal.Notify(d.signalCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
@@ -119,6 +139,92 @@ func (d *Daemon) Shutdown() {
 	close(d.done)
 }
 
+func (d *Daemon) scanPatches() {
+	entries, err := os.ReadDir(d.Config.PatchDir)
+	if err != nil {
+		d.Log.Printf("scan patches: %v", err)
+		return
+	}
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			manifestPath := filepath.Join(d.Config.PatchDir, e.Name(), "cognitive.json")
+			if _, err := os.Stat(manifestPath); err == nil {
+				count++
+			}
+		}
+	}
+	d.Log.Printf("patches scanned: %d installed", count)
+}
+
+func (d *Daemon) patchCount() int {
+	entries, err := os.ReadDir(d.Config.PatchDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			manifestPath := filepath.Join(d.Config.PatchDir, e.Name(), "cognitive.json")
+			if _, err := os.Stat(manifestPath); err == nil {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func (d *Daemon) loadWideModel() error {
+	modelDir := filepath.Join(d.Config.ModelDir, "wide", "active")
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return fmt.Errorf("read wide model dir %s: %w", modelDir, err)
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() && (strings.HasSuffix(e.Name(), ".gguf") || strings.HasSuffix(e.Name(), ".safetensors")) {
+			modelPath := filepath.Join(modelDir, e.Name())
+			if d.rmClient.IsReady() {
+				_, _, _, allowed, err := d.rmClient.AuditResources(0)
+				if err != nil {
+					d.Log.Printf("audit before load: %v", err)
+				} else if !allowed {
+					d.Log.Printf("WARN: insufficient resources for Wide Model load")
+					return fmt.Errorf("insufficient resources")
+				}
+			}
+			return d.wmClient.Load(modelPath)
+		}
+	}
+	return fmt.Errorf("no model file found in %s", modelDir)
+}
+
+func (d *Daemon) startIdleTimer() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lastRequest = time.Now()
+	if d.idleTimer != nil {
+		d.idleTimer.Stop()
+	}
+	d.idleTimer = time.AfterFunc(idleTimeoutDuration, func() {
+		d.mu.Lock()
+		if time.Since(d.lastRequest) >= idleTimeoutDuration {
+			d.mu.Unlock()
+			d.Log.Println("idle timeout: unloading Wide Model")
+			d.wmClient.Unload("idle_timeout")
+			d.SetState(StateIdle)
+		} else {
+			d.mu.Unlock()
+		}
+	})
+}
+
+func (d *Daemon) touchIdleTimer() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lastRequest = time.Now()
+}
+
 func (d *Daemon) shutdown(reason string) {
 	d.mu.Lock()
 	d.State = StateShutdown
@@ -128,11 +234,13 @@ func (d *Daemon) shutdown(reason string) {
 
 	d.broadcast(NewEnvelope("shutdown_notice", "cognitiveosd", ShutdownNoticePayload{Reason: reason}))
 
+	d.wmClient.Unload(reason)
 	d.mcpMgr.ShutdownAll()
+
+	time.Sleep(500 * time.Millisecond)
+
 	d.rmClient.Close()
-
 	d.listener.Close()
-
 	d.auditor.Stop()
 
 	d.clientsMu.Lock()
@@ -141,6 +249,21 @@ func (d *Daemon) shutdown(reason string) {
 		delete(d.clients, id)
 	}
 	d.clientsMu.Unlock()
+
+	switch reason {
+	case "security_code":
+		d.Log.Println("SECURITY: powering off peripherals")
+		exec.Command("gpioset", "0", "0=0").Run()
+		exec.Command("gpioset", "0", "1=0").Run()
+	case "idle_code":
+		d.Log.Println("IDLE: entering low-power suspend")
+		exec.Command("sysctl", "-w", "kernel.printk=0").Run()
+	case "reset_code":
+		d.Log.Println("RESET: wiping data partitions")
+		exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
+		exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run()
+		exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
+	}
 
 	d.Log.Println("shutdown complete")
 }
@@ -207,6 +330,10 @@ func (d *Daemon) HandleMessage(env Envelope, conn *ClientConn) {
 		d.handleAuditRequest(env, conn)
 	case "status_request":
 		d.handleStatusRequest(env, conn)
+	case "wide_model_load":
+		d.handleWideModelLoad(env, conn)
+	case "wide_model_unload":
+		d.handleWideModelUnload(env, conn)
 	default:
 		d.SendError(env, conn, "E_UNKNOWN_TYPE", fmt.Sprintf("unknown message type: %s", env.Type))
 	}
@@ -267,6 +394,10 @@ func responseType(msgType string) string {
 		return "audit_report"
 	case "status_request":
 		return "status_response"
+	case "wide_model_load":
+		return "wide_model_loaded"
+	case "wide_model_unload":
+		return "wide_model_unloaded"
 	default:
 		return msgType + "_response"
 	}
