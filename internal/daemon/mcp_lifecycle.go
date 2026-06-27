@@ -7,11 +7,83 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
+
+const mcpCgroupRoot = "/sys/fs/cgroup"
+
+type cgroupLimits struct {
+	memoryMB    int64
+	cpuQuota    int
+	cpuPeriod   int
+	pidsMax     int
+	ioReadMBps  int64
+	ioWriteMBps int64
+}
+
+func defaultCgroupLimits() cgroupLimits {
+	return cgroupLimits{
+		memoryMB:    512,
+		cpuQuota:    25000,
+		cpuPeriod:   100000,
+		pidsMax:     16,
+		ioReadMBps:  10,
+		ioWriteMBps: 5,
+	}
+}
+
+func setupCgroup(name string, limits cgroupLimits) (string, error) {
+	cgPath := filepath.Join(mcpCgroupRoot, "cognitiveos", name)
+	os.MkdirAll(cgPath, 0755)
+
+	memMax := filepath.Join(cgPath, "memory.max")
+	if err := os.WriteFile(memMax, []byte(fmt.Sprintf("%dM", limits.memoryMB)), 0644); err != nil {
+		return cgPath, fmt.Errorf("set memory.max: %w", err)
+	}
+
+	cpuMax := filepath.Join(cgPath, "cpu.max")
+	if err := os.WriteFile(cpuMax, []byte(fmt.Sprintf("%d %d", limits.cpuQuota, limits.cpuPeriod)), 0644); err != nil {
+		return cgPath, fmt.Errorf("set cpu.max: %w", err)
+	}
+
+	pidsMax := filepath.Join(cgPath, "pids.max")
+	if err := os.WriteFile(pidsMax, []byte(strconv.Itoa(limits.pidsMax)), 0644); err != nil {
+		return cgPath, fmt.Errorf("set pids.max: %w", err)
+	}
+
+	ioMax := filepath.Join(cgPath, "io.max")
+	ioRule := fmt.Sprintf("0:0 riops=max wiops=max rbps=%d wbps=%d\n", limits.ioReadMBps*1024*1024, limits.ioWriteMBps*1024*1024)
+	if err := os.WriteFile(ioMax, []byte(ioRule), 0644); err != nil {
+		return cgPath, fmt.Errorf("set io.max: %w", err)
+	}
+
+	return cgPath, nil
+}
+
+func joinCgroup(pid int, cgPath string) error {
+	procs := filepath.Join(cgPath, "cgroup.procs")
+	return os.WriteFile(procs, []byte(strconv.Itoa(pid)), 0644)
+}
+
+var deniedSyscalls = []string{
+	"mount", "umount", "umount2",
+	"reboot", "kexec_load",
+	"init_module", "finit_module", "delete_module",
+	"bpf",
+	"iopl", "ioperm",
+	"ptrace",
+	"swapon", "swapoff",
+}
+
+func setupSeccomp(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		NoNewPrivileges: true,
+	}
+}
 
 type MCPServer struct {
 	Name    string
@@ -49,7 +121,17 @@ func (m *MCPManager) SpawnCoreBridges() {
 }
 
 func (m *MCPManager) Spawn(name string, binaryPath string) {
+	cgPath, _ := setupCgroup(name, defaultCgroupLimits())
+
 	cmd := exec.Command(binaryPath)
+	setupSeccomp(cmd)
+	if cmd.SysProcAttr != nil {
+		chrootPath := filepath.Join(m.daemon.Config.PatchDir, name)
+		if info, err := os.Stat(chrootPath); err == nil && info.IsDir() {
+			cmd.SysProcAttr.Chroot = chrootPath
+			cmd.Dir = "/"
+		}
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -68,6 +150,12 @@ func (m *MCPManager) Spawn(name string, binaryPath string) {
 		return
 	}
 
+	if cgPath != "" {
+		if err := joinCgroup(cmd.Process.Pid, cgPath); err != nil {
+			m.daemon.Log.Printf("MCP %s: cgroup join: %v", name, err)
+		}
+	}
+
 	encoder := json.NewEncoder(stdin)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 65536), 1048576)
@@ -81,7 +169,7 @@ func (m *MCPManager) Spawn(name string, binaryPath string) {
 	}
 	m.RegisterProcess(name, server)
 
-	m.daemon.Log.Printf("MCP %s: spawned (pid %d)", name, cmd.Process.Pid)
+	m.daemon.Log.Printf("MCP %s: spawned (pid %d) cgroup=%s", name, cmd.Process.Pid, cgPath)
 
 	server.DiscoverTools(encoder, scanner)
 
@@ -227,13 +315,50 @@ func (m *MCPManager) ActiveCount() int {
 	return len(m.servers)
 }
 
+func (m *MCPManager) StartHealthchecks() {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			m.mu.RLock()
+			for name, server := range m.servers {
+				if !server.active {
+					continue
+				}
+				if server.Process == nil || server.Process.Process == nil {
+					continue
+				}
+				if err := server.Process.Process.Signal(syscall.Signal(0)); err != nil {
+					m.daemon.Log.Printf("MCP %s: healthcheck failed: %v", name, err)
+					go m.respawn(name)
+				}
+			}
+			m.mu.RUnlock()
+		}
+	}()
+	m.daemon.Log.Println("MCP healthcheck loop started (30s interval)")
+}
+
+func (m *MCPManager) respawn(name string) {
+	time.Sleep(2 * time.Second)
+	m.Spawn(name, name)
+}
+
 func (m *MCPManager) ShutdownAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for name, server := range m.servers {
 		if server.Process != nil && server.Process.Process != nil {
-			server.Process.Process.Signal(syscall.SIGTERM) // best-effort signal
+			if server.active && server.Conn != nil {
+				shutdownMsg := map[string]string{"type": "mcp_shutdown", "reason": "daemon_shutdown"}
+				server.mu.Lock()
+				if server.Stdin != nil {
+					server.Stdin.Encode(shutdownMsg)
+				}
+				server.mu.Unlock()
+			}
+			server.Process.Process.Signal(syscall.SIGTERM)
 			go func(p *os.Process, n string) {
 				done := make(chan error, 1)
 				go func() {
@@ -243,7 +368,7 @@ func (m *MCPManager) ShutdownAll() {
 				select {
 				case <-done:
 				case <-time.After(2 * time.Second):
-					p.Kill() // best-effort kill
+					p.Kill()
 				}
 			}(server.Process.Process, name)
 		}
