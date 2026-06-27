@@ -93,10 +93,9 @@ type MCPUnregisterPayload struct {
 	Reason string `json:"reason"`
 }
 
-type MCPInvokePayload struct {
-	Tool      string                 `json:"tool"`
+type ToolCall struct {
+	Tool   string                 `json:"tool"`
 	Arguments map[string]interface{} `json:"arguments"`
-	SessionID string                 `json:"session_id,omitempty"`
 }
 
 type MCPResultPayload struct {

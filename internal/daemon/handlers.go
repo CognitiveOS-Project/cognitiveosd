@@ -19,7 +19,6 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	}
 
 	d.SetState(StateProcessing)
-
 	d.SendOK(env, conn, nil)
 
 	sessionID := payload.Context.SessionID
@@ -28,26 +27,135 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	}
 
 	go func() {
-		resp, err := d.wmClient.Generate(payload.Content)
-		if err != nil {
-			d.Log.Printf("inference error: %v", err)
-			d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
-				SessionID:   sessionID,
-				Content:     fmt.Sprintf("Error: %v", err),
-				ContentType: "text",
-			}))
-			d.SetState(StateListening)
-			return
-		}
+		d.processPrompt(payload.Content, sessionID, env.From)
+	}()
+}
 
-		d.SetState(StateListening)
-
-		d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+func (d *Daemon) processPrompt(prompt, sessionID, from string) {
+	// 1. Validate prompt through Raw Model
+	action, modifiedPrompt, reason, err := d.rmClient.ValidatePrompt(prompt)
+	if err != nil {
+		d.Log.Printf("raw model validate error: %v", err)
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
-			Content:     resp,
+			Content:     fmt.Sprintf("Guardrail error: %v", err),
 			ContentType: "text",
 		}))
-	}()
+		d.SetState(StateListening)
+		return
+	}
+
+	switch action {
+	case "deny":
+		msg := "Request blocked by system guardrail."
+		if reason != "" {
+			msg = "Guardrail: " + reason
+		}
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+			SessionID:   sessionID,
+			Content:     msg,
+			ContentType: "text",
+		}))
+		d.SetState(StateListening)
+		return
+
+	case "modify":
+		if modifiedPrompt != "" {
+			prompt = modifiedPrompt
+		}
+	case "allow":
+		// proceed
+	}
+
+	// 2. Generate from Wide Model
+	resp, err := d.wmClient.Generate(prompt)
+	if err != nil {
+		d.Log.Printf("inference error: %v", err)
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+			SessionID:   sessionID,
+			Content:     fmt.Sprintf("Error: %v", err),
+			ContentType: "text",
+		}))
+		d.SetState(StateListening)
+		return
+	}
+
+	// 3. Loop: parse response for tool calls, invoke tools, regenerate
+	finalResponse := d.toolLoop(resp, prompt, sessionID)
+
+	d.SetState(StateListening)
+	d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		SessionID:   sessionID,
+		Content:     finalResponse,
+		ContentType: "text",
+	}))
+}
+
+func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) string {
+	currentResponse := response
+	maxLoops := 10
+	for i := 0; i < maxLoops; i++ {
+		toolCalls := parseToolCalls(currentResponse)
+
+		if len(toolCalls) == 0 {
+			return currentResponse
+		}
+
+		for _, tc := range toolCalls {
+			result, err := d.mcpMgr.Invoke(tc.Tool, tc.Arguments, sessionID)
+			if err != nil {
+				d.Log.Printf("tool invoke error: %v", err)
+				continue
+			}
+			d.Log.Printf("tool %s result: %s", tc.Tool, result.Status)
+		}
+
+		// Regenerate with tool results
+		newResp, err := d.wmClient.Generate(originalPrompt + "\n\n[Tool results processing complete. Continue.]")
+		if err != nil {
+			d.Log.Printf("re-generate error: %v", err)
+			return currentResponse
+		}
+		currentResponse = newResp
+	}
+
+	return currentResponse
+}
+
+func parseToolCalls(response string) []ToolCall {
+	var calls []ToolCall
+	lines := strings.Split(response, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "@@") || !strings.HasSuffix(line, "@@") {
+			continue
+		}
+		inner := line[2 : len(line)-2]
+		parenIdx := strings.Index(inner, "(")
+		if parenIdx < 0 {
+			continue
+		}
+		toolName := inner[:parenIdx]
+		argsStr := inner[parenIdx+1 : len(inner)-1]
+
+		args := make(map[string]interface{})
+		if argsStr != "" {
+			pairs := strings.Split(argsStr, ",")
+			for _, pair := range pairs {
+				pair = strings.TrimSpace(pair)
+				eqIdx := strings.Index(pair, "=")
+				if eqIdx < 0 {
+					continue
+				}
+				k := strings.TrimSpace(pair[:eqIdx])
+				v := strings.Trim(strings.TrimSpace(pair[eqIdx+1:]), "\"")
+				args[k] = v
+			}
+		}
+
+		calls = append(calls, ToolCall{Tool: toolName, Arguments: args})
+	}
+	return calls
 }
 
 func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
