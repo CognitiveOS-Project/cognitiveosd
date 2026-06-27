@@ -237,10 +237,20 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	}
 
 	code := strings.ToLower(payload.Code)
+	origin := strings.ToLower(payload.Origin)
+
+	if code == "security" || code == "reset" {
+		if origin == "keyboard" || origin == "voice" || origin == "cli" {
+			d.Log.Printf("WARN: %s code rejected from software origin: %s", code, origin)
+			d.SendError(env, conn, "E_UNAUTHORIZED", fmt.Sprintf("%s code requires physical trigger", code))
+			return
+		}
+	}
+
 	effect := ""
 
 	if d.rmClient.IsReady() {
-		status, action, err := d.rmClient.ValidateSystemCode(code, payload.Origin)
+		status, action, err := d.rmClient.ValidateSystemCode(code, origin)
 		if err != nil {
 			d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
 			return

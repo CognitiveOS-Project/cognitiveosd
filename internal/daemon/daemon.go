@@ -21,12 +21,12 @@ const idleTimeoutDuration = 5 * time.Minute
 type State string
 
 const (
-	StateIdle          State = "idle"
-	StateIdleRequested State = "idle_requested"
-	StateListening     State = "listening"
-	StateProcessing    State = "processing"
-	StateSecurity      State = "security"
-	StateShutdown      State = "shutdown"
+	StateIdle           State = "idle"
+	StateIdleRequested  State = "idle_requested"
+	StateListening      State = "listening"
+	StateProcessing     State = "processing"
+	StateSecurity       State = "security"
+	StateShutdown       State = "shutdown"
 )
 
 type Daemon struct {
@@ -103,6 +103,7 @@ func (d *Daemon) Run() error {
 	d.auditor.Start()
 
 	d.mcpMgr.SpawnCoreBridges()
+	d.mcpMgr.StartHealthchecks()
 
 	d.scanPatches()
 
