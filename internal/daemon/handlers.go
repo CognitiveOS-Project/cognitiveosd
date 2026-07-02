@@ -21,7 +21,6 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	}
 
 	d.SetState(StateProcessing)
-
 	d.SendOK(env, conn, nil)
 
 	sessionID := payload.Context.SessionID
@@ -40,11 +39,13 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	action, modifiedPrompt, reason, err := d.rmClient.ValidatePrompt(prompt)
 	if err != nil {
 		d.Log.Printf("raw model validate error: %v", err)
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     fmt.Sprintf("Guardrail error: %v", err),
 			ContentType: "text",
-		}))
+		})); err != nil {
+			d.Log.Printf("send guardrail error: %v", err)
+		}
 		d.SetState(StateListening)
 		return
 	}
@@ -55,11 +56,13 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 		if reason != "" {
 			msg = "Guardrail: " + reason
 		}
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     msg,
 			ContentType: "text",
-		}))
+		})); err != nil {
+			d.Log.Printf("send deny message: %v", err)
+		}
 		d.SetState(StateListening)
 		return
 
@@ -73,11 +76,13 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	resp, err := d.wmClient.Generate(prompt)
 	if err != nil {
 		d.Log.Printf("inference error: %v", err)
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     fmt.Sprintf("Error: %v", err),
 			ContentType: "text",
-		}))
+		})); err != nil {
+			d.Log.Printf("send inference error: %v", err)
+		}
 		d.SetState(StateListening)
 		return
 	}
@@ -85,19 +90,23 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	finalResponse, toolResults := d.toolLoop(resp, prompt, sessionID)
 
 	for _, tr := range toolResults {
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     tr,
 			ContentType: "tool_result",
-		}))
+		})); err != nil {
+			d.Log.Printf("send tool result: %v", err)
+		}
 	}
 
 	d.SetState(StateListening)
-	d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+	if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 		SessionID:   sessionID,
 		Content:     finalResponse,
 		ContentType: "text",
-	}))
+	})); err != nil {
+		d.Log.Printf("send final response: %v", err)
+	}
 }
 
 func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, []string) {
@@ -171,14 +180,9 @@ func parseToolCalls(response string) []ToolCall {
 			}
 		}
 
-		d.SetState(StateListening)
-
-		d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
-			SessionID:   sessionID,
-			Content:     resp,
-			ContentType: "text",
-		}))
-	}()
+		calls = append(calls, ToolCall{Tool: toolName, Arguments: args})
+	}
+	return calls
 }
 
 func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {
@@ -276,20 +280,20 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	case "idle":
 		effect = "entering idle state"
 		d.SetState(StateIdleRequested)
-		d.wmClient.Unload("idle")
+		_ = d.wmClient.Unload("idle")
 		d.mcpMgr.ShutdownAll()
 		d.SetState(StateIdle)
 
 	case "security":
 		effect = "SECURITY SHUTDOWN: terminating all processes"
 		d.SetState(StateSecurity)
-		d.wmClient.Unload("security")
+		_ = d.wmClient.Unload("security")
 		d.mcpMgr.ShutdownAll()
 		d.shutdown("security_code")
 
 	case "reset":
 		effect = "RESET: wiping data and rebooting"
-		d.wmClient.Unload("reset")
+		_ = d.wmClient.Unload("reset")
 		d.mcpMgr.ShutdownAll()
 		d.shutdown("reset_code")
 
