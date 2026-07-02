@@ -21,7 +21,6 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	}
 
 	d.SetState(StateProcessing)
-
 	d.SendOK(env, conn, nil)
 
 	sessionID := payload.Context.SessionID
@@ -171,14 +170,9 @@ func parseToolCalls(response string) []ToolCall {
 			}
 		}
 
-		d.SetState(StateListening)
-
-		d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
-			SessionID:   sessionID,
-			Content:     resp,
-			ContentType: "text",
-		}))
-	}()
+		calls = append(calls, ToolCall{Tool: toolName, Arguments: args})
+	}
+	return calls
 }
 
 func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {

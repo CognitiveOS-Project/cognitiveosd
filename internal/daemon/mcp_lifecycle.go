@@ -80,9 +80,7 @@ var deniedSyscalls = []string{
 }
 
 func setupSeccomp(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		NoNewPrivileges: true,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
 }
 
 type MCPServer struct {
