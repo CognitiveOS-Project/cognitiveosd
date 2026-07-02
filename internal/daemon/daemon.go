@@ -212,7 +212,7 @@ func (d *Daemon) startIdleTimer() {
 		if time.Since(d.lastRequest) >= idleTimeoutDuration {
 			d.mu.Unlock()
 			d.Log.Println("idle timeout: unloading Wide Model")
-			d.wmClient.Unload("idle_timeout")
+			_ = d.wmClient.Unload("idle_timeout")
 			d.SetState(StateIdle)
 		} else {
 			d.mu.Unlock()
@@ -235,7 +235,7 @@ func (d *Daemon) shutdown(reason string) {
 
 	d.broadcast(NewEnvelope("shutdown_notice", "cognitiveosd", ShutdownNoticePayload{Reason: reason}))
 
-	d.wmClient.Unload(reason)
+	_ = d.wmClient.Unload(reason)
 	d.mcpMgr.ShutdownAll()
 
 	time.Sleep(500 * time.Millisecond)
@@ -254,11 +254,11 @@ func (d *Daemon) shutdown(reason string) {
 	switch reason {
 	case "security_code":
 		d.Log.Println("SECURITY: powering off peripherals")
-		exec.Command("gpioset", "0", "0=0").Run()
-		exec.Command("gpioset", "0", "1=0").Run()
+		_ = exec.Command("gpioset", "0", "0=0").Run()
+		_ = exec.Command("gpioset", "0", "1=0").Run()
 	case "idle_code":
 		d.Log.Println("IDLE: entering low-power suspend")
-		exec.Command("sysctl", "-w", "kernel.printk=0").Run()
+		_ = exec.Command("sysctl", "-w", "kernel.printk=0").Run()
 	case "reset_code":
 		d.Log.Println("RESET: wiping data partitions")
 		exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
@@ -301,7 +301,7 @@ func (d *Daemon) broadcast(env Envelope) {
 	d.clientsMu.RLock()
 	defer d.clientsMu.RUnlock()
 	for _, c := range d.clients {
-		c.Send(env)
+		_ = c.Send(env)
 	}
 }
 
@@ -349,7 +349,9 @@ func (d *Daemon) SendError(env Envelope, conn *ClientConn, code, message string)
 	}
 	status := ErrorPayload(code, message)
 	d.SendResponse(resp, status)
-	conn.Send(resp)
+	if err := conn.Send(resp); err != nil {
+		d.Log.Printf("send error response: %v", err)
+	}
 }
 
 func (d *Daemon) SendOK(env Envelope, conn *ClientConn, data interface{}) {
@@ -361,7 +363,9 @@ func (d *Daemon) SendOK(env Envelope, conn *ClientConn, data interface{}) {
 	}
 	status := OKPayload(data)
 	d.SendResponse(resp, status)
-	conn.Send(resp)
+	if err := conn.Send(resp); err != nil {
+		d.Log.Printf("send ok response: %v", err)
+	}
 }
 
 func (d *Daemon) CurrentState() State {
@@ -405,5 +409,7 @@ func responseType(msgType string) string {
 }
 
 func writePid(path string) {
-	os.WriteFile(path, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644)
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "write pid: %v\n", err)
+	}
 }

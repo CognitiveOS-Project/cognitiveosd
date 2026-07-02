@@ -101,10 +101,14 @@ func TestSystemCodePayloadParse(t *testing.T) {
 	}`
 
 	var env Envelope
-	json.Unmarshal([]byte(raw), &env)
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	var payload SystemCodePayload
-	json.Unmarshal(env.Payload, &payload)
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
 
 	if payload.Code != "wake" {
 		t.Fatalf("expected wake, got %s", payload.Code)
@@ -131,10 +135,14 @@ func TestMCPRegisterPayloadParse(t *testing.T) {
 	}`
 
 	var env Envelope
-	json.Unmarshal([]byte(raw), &env)
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	var payload MCPRegisterPayload
-	json.Unmarshal(env.Payload, &payload)
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
 
 	if payload.Server.Name != "display-mcp" {
 		t.Fatalf("expected display-mcp, got %s", payload.Server.Name)
@@ -241,8 +249,12 @@ func TestMCPManagerInvokeNoServer(t *testing.T) {
 
 func TestAuditDirSize(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.txt"), make([]byte, 2*1024*1024), 0644)
-	os.MkdirAll(filepath.Join(dir, "sub"), 0755)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), make([]byte, 2*1024*1024), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 	os.WriteFile(filepath.Join(dir, "sub", "b.txt"), make([]byte, 3*1024*1024), 0644)
 
 	cfg := config.Config{

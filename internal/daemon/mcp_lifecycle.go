@@ -38,7 +38,9 @@ func defaultCgroupLimits() cgroupLimits {
 
 func setupCgroup(name string, limits cgroupLimits) (string, error) {
 	cgPath := filepath.Join(mcpCgroupRoot, "cognitiveos", name)
-	os.MkdirAll(cgPath, 0755)
+	if err := os.MkdirAll(cgPath, 0755); err != nil {
+		return cgPath, fmt.Errorf("create cgroup dir: %w", err)
+	}
 
 	memMax := filepath.Join(cgPath, "memory.max")
 	if err := os.WriteFile(memMax, []byte(fmt.Sprintf("%dM", limits.memoryMB)), 0644); err != nil {
@@ -67,16 +69,6 @@ func setupCgroup(name string, limits cgroupLimits) (string, error) {
 func joinCgroup(pid int, cgPath string) error {
 	procs := filepath.Join(cgPath, "cgroup.procs")
 	return os.WriteFile(procs, []byte(strconv.Itoa(pid)), 0644)
-}
-
-var deniedSyscalls = []string{
-	"mount", "umount", "umount2",
-	"reboot", "kexec_load",
-	"init_module", "finit_module", "delete_module",
-	"bpf",
-	"iopl", "ioperm",
-	"ptrace",
-	"swapon", "swapoff",
 }
 
 func setupSeccomp(cmd *exec.Cmd) {
@@ -352,11 +344,15 @@ func (m *MCPManager) ShutdownAll() {
 				shutdownMsg := map[string]string{"type": "mcp_shutdown", "reason": "daemon_shutdown"}
 				server.mu.Lock()
 				if server.Stdin != nil {
-					server.Stdin.Encode(shutdownMsg)
+					if err := server.Stdin.Encode(shutdownMsg); err != nil {
+						m.daemon.Log.Printf("MCP %s: shutdown encode: %v", name, err)
+					}
 				}
 				server.mu.Unlock()
 			}
-			server.Process.Process.Signal(syscall.SIGTERM)
+			if err := server.Process.Process.Signal(syscall.SIGTERM); err != nil {
+				m.daemon.Log.Printf("MCP %s: signal SIGTERM: %v", name, err)
+			}
 			go func(p *os.Process, n string) {
 				done := make(chan error, 1)
 				go func() {
@@ -366,7 +362,9 @@ func (m *MCPManager) ShutdownAll() {
 				select {
 				case <-done:
 				case <-time.After(2 * time.Second):
-					p.Kill()
+					if err := p.Kill(); err != nil {
+						m.daemon.Log.Printf("MCP %s: kill after timeout: %v", n, err)
+					}
 				}
 			}(server.Process.Process, name)
 		}

@@ -56,7 +56,7 @@ func (r *RawModelClient) Connect() error {
 		return fmt.Errorf("connect to raw model: %w", err)
 	}
 
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	r.conn = conn
 
 	health, err := r.call("healthcheck", nil)
@@ -221,7 +221,7 @@ func (r *RawModelClient) call(method string, params interface{}) (json.RawMessag
 		Params:  rawParams,
 	}
 
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
