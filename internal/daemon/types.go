@@ -83,6 +83,11 @@ type MCPTool struct {
 	InputSchema interface{} `json:"inputSchema"`
 }
 
+type ToolCall struct {
+	Tool      string                 `json:"tool"`
+	Arguments map[string]interface{} `json:"arguments"`
+}
+
 type MCPRegisteredPayload struct {
 	Status          string   `json:"status"`
 	ServerID        string   `json:"server_id"`

@@ -171,14 +171,10 @@ func parseToolCalls(response string) []ToolCall {
 			}
 		}
 
-		d.SetState(StateListening)
+		calls = append(calls, ToolCall{Tool: toolName, Arguments: args})
+	}
 
-		d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
-			SessionID:   sessionID,
-			Content:     resp,
-			ContentType: "text",
-		}))
-	}()
+	return calls
 }
 
 func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {
