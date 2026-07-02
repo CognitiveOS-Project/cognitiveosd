@@ -261,9 +261,9 @@ func (d *Daemon) shutdown(reason string) {
 		_ = exec.Command("sysctl", "-w", "kernel.printk=0").Run()
 	case "reset_code":
 		d.Log.Println("RESET: wiping data partitions")
-		exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
-		exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run()
-		exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
+		_ = exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
+		_ = exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run()
+		_ = exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
 	}
 
 	d.Log.Println("shutdown complete")

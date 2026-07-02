@@ -255,7 +255,9 @@ func TestAuditDirSize(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	os.WriteFile(filepath.Join(dir, "sub", "b.txt"), make([]byte, 3*1024*1024), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "sub", "b.txt"), make([]byte, 3*1024*1024), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
 
 	cfg := config.Config{
 		PatchDir: dir,
