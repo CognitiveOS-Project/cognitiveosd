@@ -71,12 +71,12 @@ func (a *Auditor) readRAM() RAMInfo {
 		for _, line := range lines {
 			if strings.HasPrefix(line, "MemTotal:") {
 				var kb int64
-				fmt.Sscanf(line, "MemTotal: %d kB", &kb)
+				_, _ = fmt.Sscanf(line, "MemTotal: %d kB", &kb)
 				totalMB = kb / 1024
 			}
 			if strings.HasPrefix(line, "MemAvailable:") {
 				var kb int64
-				fmt.Sscanf(line, "MemAvailable: %d kB", &kb)
+				_, _ = fmt.Sscanf(line, "MemAvailable: %d kB", &kb)
 				availableMB = kb / 1024
 			}
 		}
@@ -139,7 +139,7 @@ func (a *Auditor) readNetwork() NetworkInfo {
 
 func (a *Auditor) dirSizeMB(path string) int64 {
 	var total int64
-	filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -160,7 +160,9 @@ func (a *Auditor) saveReport(r AuditResources) {
 		Resources: r,
 	}
 	data, _ := json.MarshalIndent(report, "", "  ")
-	os.WriteFile(filepath.Join(a.daemon.Config.AuditDir, "current.json"), data, 0644)
+	if err := os.WriteFile(filepath.Join(a.daemon.Config.AuditDir, "current.json"), data, 0644); err != nil {
+		a.daemon.Log.Printf("save report: %v", err)
+	}
 }
 
 func (a *Auditor) broadcastReport(r AuditResources) {
