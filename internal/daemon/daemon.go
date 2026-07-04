@@ -237,6 +237,7 @@ func (d *Daemon) shutdown(reason string) {
 
 	_ = d.wmClient.Unload(reason)
 	d.mcpMgr.ShutdownAll()
+	d.rmClient.Close()
 
 	time.Sleep(500 * time.Millisecond)
 
