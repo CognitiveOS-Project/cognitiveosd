@@ -3,6 +3,8 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -19,7 +21,6 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	}
 
 	d.SetState(StateProcessing)
-
 	d.SendOK(env, conn, nil)
 
 	sessionID := payload.Context.SessionID
@@ -28,26 +29,214 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	}
 
 	go func() {
-		resp, err := d.wmClient.Generate(payload.Content)
-		if err != nil {
-			d.Log.Printf("inference error: %v", err)
-			d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
-				SessionID:   sessionID,
-				Content:     fmt.Sprintf("Error: %v", err),
-				ContentType: "text",
-			}))
-			d.SetState(StateListening)
-			return
+		d.processPrompt(payload.Content, sessionID, env.From)
+	}()
+}
+
+func (d *Daemon) processPrompt(prompt, sessionID, from string) {
+	d.touchIdleTimer()
+
+	action, modifiedPrompt, reason, err := d.rmClient.ValidatePrompt(prompt)
+	if err != nil {
+		d.Log.Printf("raw model validate error: %v", err)
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+			SessionID:   sessionID,
+			Content:     fmt.Sprintf("Guardrail error: %v", err),
+			ContentType: "text",
+		})); err != nil {
+			d.Log.Printf("send guardrail error: %v", err)
+		}
+		d.SetState(StateListening)
+		return
+	}
+
+	switch action {
+	case "deny":
+		msg := "Request blocked by system guardrail."
+		if reason != "" {
+			msg = "Guardrail: " + reason
+		}
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+			SessionID:   sessionID,
+			Content:     msg,
+			ContentType: "text",
+		})); err != nil {
+			d.Log.Printf("send deny message: %v", err)
+		}
+		d.SetState(StateListening)
+		return
+
+	case "modify":
+		if modifiedPrompt != "" {
+			prompt = modifiedPrompt
+		}
+	case "allow":
+	}
+
+	resp, err := d.wmClient.Generate(prompt)
+	if err != nil {
+		d.Log.Printf("inference error: %v", err)
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+			SessionID:   sessionID,
+			Content:     fmt.Sprintf("Error: %v", err),
+			ContentType: "text",
+		})); err != nil {
+			d.Log.Printf("send inference error: %v", err)
+		}
+		d.SetState(StateListening)
+		return
+	}
+
+	finalResponse, toolResults := d.toolLoop(resp, prompt, sessionID)
+
+	for _, tr := range toolResults {
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+			SessionID:   sessionID,
+			Content:     tr,
+			ContentType: "tool_result",
+		})); err != nil {
+			d.Log.Printf("send tool result: %v", err)
+		}
+	}
+
+	d.SetState(StateListening)
+	if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		SessionID:   sessionID,
+		Content:     finalResponse,
+		ContentType: "text",
+	})); err != nil {
+		d.Log.Printf("send final response: %v", err)
+	}
+}
+
+func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, []string) {
+	currentResponse := response
+	var toolResults []string
+	maxLoops := 10
+	for i := 0; i < maxLoops; i++ {
+		toolCalls := parseToolCalls(currentResponse)
+
+		if len(toolCalls) == 0 {
+			return currentResponse, toolResults
 		}
 
-		d.SetState(StateListening)
+		var results []string
+		for _, tc := range toolCalls {
+			result, err := d.mcpMgr.Invoke(tc.Tool, tc.Arguments, sessionID)
+			if err != nil {
+				d.Log.Printf("tool invoke error: %v", err)
+				results = append(results, fmt.Sprintf("Error calling %s: %v", tc.Tool, err))
+				continue
+			}
 
-		d.SendToClient(env.From, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
-			SessionID:   sessionID,
-			Content:     resp,
-			ContentType: "text",
-		}))
-	}()
+			var resultText string
+			for _, c := range result.Content {
+				resultText += c.Text
+			}
+			results = append(results, fmt.Sprintf("Tool %s returned: %s", tc.Tool, resultText))
+			toolResults = append(toolResults, fmt.Sprintf("%s → %s", tc.Tool, resultText))
+			d.Log.Printf("tool %s result: %s", tc.Tool, result.Status)
+		}
+
+		newResp, err := d.wmClient.Generate(originalPrompt + "\n\nTool results:\n" + strings.Join(results, "\n") + "\n\nContinue.")
+		if err != nil {
+			d.Log.Printf("re-generate error: %v", err)
+			return currentResponse, toolResults
+		}
+		currentResponse = newResp
+	}
+
+	return currentResponse, toolResults
+}
+
+func parseToolCalls(response string) []ToolCall {
+	var calls []ToolCall
+	lines := strings.Split(response, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "@@") || !strings.HasSuffix(line, "@@") {
+			continue
+		}
+		inner := line[2 : len(line)-2]
+		parenIdx := strings.Index(inner, "(")
+		if parenIdx < 0 {
+			continue
+		}
+		toolName := inner[:parenIdx]
+		argsStr := inner[parenIdx+1 : len(inner)-1]
+
+		args := make(map[string]interface{})
+		if argsStr != "" {
+			pairs := strings.Split(argsStr, ",")
+			for _, pair := range pairs {
+				pair = strings.TrimSpace(pair)
+				eqIdx := strings.Index(pair, "=")
+				if eqIdx < 0 {
+					continue
+				}
+				k := strings.TrimSpace(pair[:eqIdx])
+				v := strings.Trim(strings.TrimSpace(pair[eqIdx+1:]), "\"")
+				args[k] = v
+			}
+		}
+
+		calls = append(calls, ToolCall{Tool: toolName, Arguments: args})
+	}
+	return calls
+}
+
+func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {
+	var payload WideModelLoadPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
+		return
+	}
+
+	modelPath := payload.ModelPath
+	if modelPath == "" {
+		modelPath = filepath.Join(d.Config.ModelDir, "wide", "active")
+	}
+
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		d.SendError(env, conn, "E_MODEL_NOT_FOUND", modelPath)
+		return
+	}
+
+	if err := d.wmClient.Load(modelPath); err != nil {
+		d.SendError(env, conn, "E_MODEL_LOAD_FAILED", err.Error())
+		return
+	}
+
+	d.SendOK(env, conn, WideModelLoadedPayload{
+		Status: "ok",
+		ModelInfo: &WideModelInfo{
+			Loaded:     d.wmClient.LoadedModelName(),
+			RAMUsageMB: 0,
+		},
+	})
+}
+
+func (d *Daemon) handleWideModelUnload(env Envelope, conn *ClientConn) {
+	var payload WideModelUnloadPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
+		return
+	}
+
+	reason := payload.Reason
+	if reason == "" {
+		reason = "requested"
+	}
+
+	if err := d.wmClient.Unload(reason); err != nil {
+		d.SendError(env, conn, "E_MODEL_UNLOAD_FAILED", err.Error())
+		return
+	}
+
+	d.SendOK(env, conn, WideModelUnloadedPayload{
+		Status:     "ok",
+		RAMFreedMB: 0,
+	})
 }
 
 func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
@@ -58,10 +247,20 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	}
 
 	code := strings.ToLower(payload.Code)
+	origin := strings.ToLower(payload.Origin)
+
+	if code == "security" || code == "reset" {
+		if origin == "keyboard" || origin == "voice" || origin == "cli" {
+			d.Log.Printf("WARN: %s code rejected from software origin: %s", code, origin)
+			d.SendError(env, conn, "E_UNAUTHORIZED", fmt.Sprintf("%s code requires physical trigger", code))
+			return
+		}
+	}
+
 	effect := ""
 
 	if d.rmClient.IsReady() {
-		status, action, err := d.rmClient.ValidateSystemCode(code, payload.Origin)
+		status, action, err := d.rmClient.ValidateSystemCode(code, origin)
 		if err != nil {
 			d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
 			return
@@ -80,20 +279,21 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 
 	case "idle":
 		effect = "entering idle state"
-		d.SetState(StateIdle)
-		d.wmClient.Unload("idle")
+		d.SetState(StateIdleRequested)
+		_ = d.wmClient.Unload("idle")
 		d.mcpMgr.ShutdownAll()
+		d.SetState(StateIdle)
 
 	case "security":
 		effect = "SECURITY SHUTDOWN: terminating all processes"
 		d.SetState(StateSecurity)
-		d.wmClient.Unload("security")
+		_ = d.wmClient.Unload("security")
 		d.mcpMgr.ShutdownAll()
 		d.shutdown("security_code")
 
 	case "reset":
 		effect = "RESET: wiping data and rebooting"
-		d.wmClient.Unload("reset")
+		_ = d.wmClient.Unload("reset")
 		d.mcpMgr.ShutdownAll()
 		d.shutdown("reset_code")
 
@@ -197,7 +397,9 @@ func (d *Daemon) handleAuditRequest(env Envelope, conn *ClientConn) {
 	}
 	respPayload, _ := json.Marshal(payload)
 	resp.Payload = respPayload
-	conn.Send(resp)
+	if err := conn.Send(resp); err != nil {
+		d.Log.Printf("send audit_report: %v", err)
+	}
 }
 
 func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
@@ -221,10 +423,12 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 		State:            state,
 		UptimeSeconds:    uptime,
 		WideModel:        wmStatus,
-		PatchesInstalled: 0,
+		PatchesInstalled: d.patchCount(),
 		MCPServersActive: mcpCount,
 	}
 	respPayload, _ := json.Marshal(payload)
 	resp.Payload = respPayload
-	conn.Send(resp)
+	if err := conn.Send(resp); err != nil {
+		d.Log.Printf("send status_response: %v", err)
+	}
 }

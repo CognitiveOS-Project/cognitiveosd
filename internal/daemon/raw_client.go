@@ -56,7 +56,7 @@ func (r *RawModelClient) Connect() error {
 		return fmt.Errorf("connect to raw model: %w", err)
 	}
 
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	r.conn = conn
 
 	health, err := r.call("healthcheck", nil)
@@ -154,6 +154,28 @@ func (r *RawModelClient) AuditResources(requestedMB int64) (bool, int64, int64, 
 	return resp.Available, resp.TotalMB, resp.FreeMB, resp.Allowed, nil
 }
 
+func (r *RawModelClient) ValidatePrompt(prompt string) (string, string, string, error) {
+	params := map[string]interface{}{
+		"prompt": prompt,
+	}
+
+	result, err := r.call("validate_prompt", params)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	var resp struct {
+		Action         string `json:"action"`
+		ModifiedPrompt string `json:"modified_prompt,omitempty"`
+		Reason         string `json:"reason,omitempty"`
+	}
+	if err := json.Unmarshal(result, &resp); err != nil {
+		return "", "", "", fmt.Errorf("parse validate_prompt response: %w", err)
+	}
+
+	return resp.Action, resp.ModifiedPrompt, resp.Reason, nil
+}
+
 func (r *RawModelClient) IsReady() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -199,7 +221,7 @@ func (r *RawModelClient) call(method string, params interface{}) (json.RawMessag
 		Params:  rawParams,
 	}
 
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {

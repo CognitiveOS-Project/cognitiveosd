@@ -104,7 +104,9 @@ func (cc *ClientConn) ReadLoop() {
 		if err := json.Unmarshal(cc.reader.Bytes(), &env); err != nil {
 			cc.daemon.Log.Printf("parse error from %s: %v", cc.id, err)
 			resp := NewEnvelope("error", "cognitiveosd", ErrorPayload("E_INVALID_PAYLOAD", err.Error()))
-			cc.Send(resp)
+			if err := cc.Send(resp); err != nil {
+				cc.daemon.Log.Printf("send error to %s: %v", cc.id, err)
+			}
 			continue
 		}
 
