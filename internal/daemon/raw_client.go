@@ -176,6 +176,20 @@ func (r *RawModelClient) ValidatePrompt(prompt string) (string, string, string, 
 	return resp.Action, resp.ModifiedPrompt, resp.Reason, nil
 }
 
+func (r *RawModelClient) ValidatePackageRequest(params PackageValidationParams) (PackageValidationResult, error) {
+	result, err := r.call("validate_package_request", params)
+	if err != nil {
+		return PackageValidationResult{}, err
+	}
+
+	var resp PackageValidationResult
+	if err := json.Unmarshal(result, &resp); err != nil {
+		return PackageValidationResult{}, fmt.Errorf("parse validate_package_request response: %w", err)
+	}
+
+	return resp, nil
+}
+
 func (r *RawModelClient) IsReady() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

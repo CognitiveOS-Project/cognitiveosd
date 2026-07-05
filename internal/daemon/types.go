@@ -199,6 +199,35 @@ type ShutdownNoticePayload struct {
 	Reason string `json:"reason"`
 }
 
+type PackageValidationParams struct {
+	Operation        string                  `json:"operation"`
+	PackageName      string                  `json:"package_name"`
+	Version          string                  `json:"version,omitempty"`
+	ManifestMetadata *PackageManifestMetadata `json:"manifest_metadata,omitempty"`
+}
+
+type PackageManifestMetadata struct {
+	HasRawModel bool   `json:"has_raw_model,omitempty"`
+	DiskSpaceMB int64  `json:"disk_space_mb,omitempty"`
+	Registry    string `json:"registry,omitempty"`
+	IsCritical  bool   `json:"is_critical,omitempty"`
+}
+
+type PackageValidationResult struct {
+	Status  string `json:"status"`
+	Reason  string `json:"reason"`
+	Command string `json:"command"`
+}
+
+type PackageRegistryManifest struct {
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	HasRawModel bool `json:"has_raw_model,omitempty"`
+	IsCritical  bool `json:"is_critical,omitempty"`
+	DiskSpaceMB int64 `json:"disk_space_mb,omitempty"`
+	Registry    string `json:"registry,omitempty"`
+}
+
 func NewEnvelope(msgType string, from string, payload interface{}) Envelope {
 	b, _ := json.Marshal(payload)
 	return Envelope{

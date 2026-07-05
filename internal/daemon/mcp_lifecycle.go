@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -216,6 +217,79 @@ func (m *MCPManager) Unregister(name string) {
 	if s, ok := m.servers[name]; ok {
 		s.active = false
 		delete(m.servers, name)
+	}
+}
+
+var validatedNamespaces = map[string]bool{
+	"cognitiveos.package": true,
+}
+
+func isToolValidated(toolName string) bool {
+	for ns := range validatedNamespaces {
+		if strings.HasPrefix(toolName, ns) {
+			return true
+		}
+	}
+	return false
+}
+
+func operationFromTool(toolName string) string {
+	parts := strings.Split(toolName, ".")
+	if len(parts) < 3 {
+		return ""
+	}
+	action := parts[len(parts)-1]
+	switch action {
+	case "search":
+		return "search"
+	case "list":
+		return "list"
+	case "install":
+		return "install"
+	case "remove":
+		return "remove"
+	case "info":
+		return "info"
+	case "update":
+		return "update"
+	default:
+		return action
+	}
+}
+
+func (m *MCPManager) fetchManifestMetadata(registryURL, packageName, version string) *PackageManifestMetadata {
+	if registryURL == "" {
+		return nil
+	}
+
+	url := registryURL + "/v1/patches/" + packageName
+	if version != "" {
+		url += "/" + version
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		m.daemon.Log.Printf("fetch manifest: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var manifest PackageRegistryManifest
+	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+		m.daemon.Log.Printf("decode manifest: %v", err)
+		return nil
+	}
+
+	return &PackageManifestMetadata{
+		HasRawModel: manifest.HasRawModel,
+		IsCritical:  manifest.IsCritical,
+		DiskSpaceMB: manifest.DiskSpaceMB,
+		Registry:    manifest.Registry,
 	}
 }
 

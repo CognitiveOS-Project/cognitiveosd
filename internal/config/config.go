@@ -16,6 +16,7 @@ type Config struct {
 	AuditDir      string
 	LogDir        string
 	InferenceURL  string
+	RegistryURL   string
 	AuditInterval int
 	MCPBinDir     string
 	MCPBridges    []string
@@ -32,6 +33,7 @@ var Default = Config{
 	AuditDir:      "/cognitiveos/audit",
 	LogDir:        "/cognitiveos/logs",
 	InferenceURL:  "http://127.0.0.1:11434",
+	RegistryURL:   "https://registry.cognitiveos.org",
 	AuditInterval: 60,
 	MCPBinDir:     "/cognitiveos/bin",
 	MCPBridges: []string{
@@ -40,6 +42,7 @@ var Default = Config{
 		"network-mcp",
 		"gpio-mcp",
 		"serial-mcp",
+		"package-mcp",
 	},
 }
 

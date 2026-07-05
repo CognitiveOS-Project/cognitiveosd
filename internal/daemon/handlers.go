@@ -112,6 +112,50 @@ func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, [
 
 		var results []string
 		for _, tc := range toolCalls {
+			// Validate if tool is in a validated namespace
+			if isToolValidated(tc.Tool) {
+				op := operationFromTool(tc.Tool)
+				pkgName, _ := tc.Arguments["name"].(string)
+				version, _ := tc.Arguments["version"].(string)
+
+				var manifestMeta *PackageManifestMetadata
+				if op == "install" || op == "update" {
+					pkg := pkgName
+					if pkg == "" {
+						if name, ok := tc.Arguments["package_name"].(string); ok {
+							pkg = name
+						}
+					}
+					if pkg != "" {
+						manifestMeta = d.mcpMgr.fetchManifestMetadata(d.Config.RegistryURL, pkg, version)
+					}
+				}
+
+				validationParams := PackageValidationParams{
+					Operation:        op,
+					PackageName:      pkgName,
+					Version:          version,
+					ManifestMetadata: manifestMeta,
+				}
+
+				validationResult, err := d.rmClient.ValidatePackageRequest(validationParams)
+				if err != nil {
+					d.Log.Printf("package validation error: %v", err)
+					results = append(results, fmt.Sprintf("Error validating %s: %v", tc.Tool, err))
+					continue
+				}
+
+				if validationResult.Status != "approved" {
+					reason := validationResult.Reason
+					if reason == "" {
+						reason = "operation denied by system guardrail"
+					}
+					d.Log.Printf("package validation denied: %s (%s)", tc.Tool, reason)
+					results = append(results, fmt.Sprintf("Tool %s denied: %s", tc.Tool, reason))
+					continue
+				}
+			}
+
 			result, err := d.mcpMgr.Invoke(tc.Tool, tc.Arguments, sessionID)
 			if err != nil {
 				d.Log.Printf("tool invoke error: %v", err)
