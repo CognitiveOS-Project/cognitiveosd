@@ -157,21 +157,24 @@ type NetworkInfo struct {
 type StatusRequestPayload struct{}
 
 type StatusResponsePayload struct {
-	State            string        `json:"state"`
-	UptimeSeconds    int64         `json:"uptime_seconds"`
-	WideModel        WideModelStatus `json:"wide_model"`
-	PatchesInstalled int           `json:"patches_installed"`
-	MCPServersActive int           `json:"mcp_servers_active"`
+	State            string           `json:"state"`
+	UptimeSeconds    int64            `json:"uptime_seconds"`
+	WideModel        WideModelStatus  `json:"wide_model"`
+	ModelRegistry    int              `json:"model_registry_count"`
+	PatchesInstalled int              `json:"patches_installed"`
+	MCPServersActive int              `json:"mcp_servers_active"`
 }
 
-type WideModelStatus struct {
-	Status string `json:"status"`
-	Name   string `json:"name,omitempty"`
+type ModelRegistryEntry struct {
+	ModelID     string   `json:"model_id"`
+	Tags        []string `json:"tags,omitempty"`
+	GGUFFilePath string `json:"gguf_file_path"`
 }
 
 type WideModelLoadPayload struct {
-	ModelPath string                 `json:"model_path"`
-	Params    map[string]interface{} `json:"params,omitempty"`
+	ModelPath    string                 `json:"model_path"`
+	SystemPrompt string                 `json:"system_prompt,omitempty"`
+	Params       map[string]interface{} `json:"params,omitempty"`
 }
 
 type WideModelLoadedPayload struct {

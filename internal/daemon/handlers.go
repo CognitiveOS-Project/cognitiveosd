@@ -36,7 +36,8 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	d.touchIdleTimer()
 
-	action, modifiedPrompt, reason, err := d.rmClient.ValidatePrompt(prompt)
+	routingHints := d.modelRegistryRoutingHints()
+	action, modifiedPrompt, reason, modelID, err := d.rmClient.ValidatePrompt(prompt, routingHints)
 	if err != nil {
 		d.Log.Printf("raw model validate error: %v", err)
 		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
@@ -67,6 +68,12 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 			prompt = modifiedPrompt
 		}
 	case "allow":
+	}
+
+	if modelID != "" {
+		if err := d.hotSwapWideModel(modelID); err != nil {
+			d.Log.Printf("hot-swap to %s failed: %v, using current model", modelID, err)
+		}
 	}
 
 	resp, err := d.wmClient.Generate(prompt)
@@ -442,10 +449,15 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 
 	wmStatus := WideModelStatus{Status: "unloaded"}
 	if d.wmClient.IsLoaded() {
-		wmStatus = WideModelStatus{Status: "loaded", Name: d.wmClient.LoadedModelName()}
+		wmStatus = WideModelStatus{
+			Status:  "loaded",
+			Name:    d.wmClient.LoadedModelName(),
+			ModelID: d.wmClient.LoadedModelID(),
+		}
 	}
 
 	mcpCount := d.mcpMgr.ActiveCount()
+	regCount := len(d.modelRegistryRoutingHints())
 
 	resp := Envelope{
 		Type:      "status_response",
@@ -457,6 +469,7 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 		State:            state,
 		UptimeSeconds:    uptime,
 		WideModel:        wmStatus,
+		ModelRegistry:    regCount,
 		PatchesInstalled: d.patchCount(),
 		MCPServersActive: mcpCount,
 	}
