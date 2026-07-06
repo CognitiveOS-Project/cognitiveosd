@@ -12,11 +12,13 @@ import (
 )
 
 type WideModelClient struct {
-	daemon    *Daemon
-	client    *http.Client
-	loaded    bool
-	modelName string
-	mu        sync.RWMutex
+	daemon       *Daemon
+	client       *http.Client
+	loaded       bool
+	modelName    string
+	modelID      string
+	systemPrompt string
+	mu           sync.RWMutex
 }
 
 func NewWideModelClient(d *Daemon) *WideModelClient {
@@ -27,9 +29,18 @@ func NewWideModelClient(d *Daemon) *WideModelClient {
 }
 
 func (w *WideModelClient) Generate(prompt string) (string, error) {
+	w.mu.RLock()
+	sysPrompt := w.systemPrompt
+	w.mu.RUnlock()
+
+	fullPrompt := prompt
+	if sysPrompt != "" {
+		fullPrompt = sysPrompt + "\n\n" + prompt
+	}
+
 	body := map[string]interface{}{
 		"model":  "wide-model",
-		"prompt": prompt,
+		"prompt": fullPrompt,
 		"stream": false,
 		"options": map[string]interface{}{
 			"temperature": 0.7,
@@ -73,7 +84,24 @@ func (w *WideModelClient) Generate(prompt string) (string, error) {
 	return result.Response, nil
 }
 
+func (w *WideModelClient) SetSystemPrompt(prompt string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.systemPrompt = prompt
+	w.daemon.Log.Printf("system prompt set (%d bytes)", len(prompt))
+}
+
+func (w *WideModelClient) SystemPrompt() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.systemPrompt
+}
+
 func (w *WideModelClient) Load(modelPath string) error {
+	return w.LoadWithID(modelPath, "")
+}
+
+func (w *WideModelClient) LoadWithID(modelPath, modelID string) error {
 	body := map[string]interface{}{
 		"model": "wide-model",
 		"path":  modelPath,
@@ -97,6 +125,7 @@ func (w *WideModelClient) Load(modelPath string) error {
 	w.mu.Lock()
 	w.loaded = true
 	w.modelName = modelPath
+	w.modelID = modelID
 	w.mu.Unlock()
 
 	return nil
@@ -127,6 +156,7 @@ func (w *WideModelClient) Unload(reason string) error {
 	w.mu.Lock()
 	w.loaded = false
 	w.modelName = ""
+	w.modelID = ""
 	w.mu.Unlock()
 
 	return nil
@@ -145,6 +175,15 @@ func (w *WideModelClient) LoadedModelName() string {
 		return ""
 	}
 	return w.modelName
+}
+
+func (w *WideModelClient) LoadedModelID() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if !w.loaded {
+		return ""
+	}
+	return w.modelID
 }
 
 func (w *WideModelClient) Health() bool {

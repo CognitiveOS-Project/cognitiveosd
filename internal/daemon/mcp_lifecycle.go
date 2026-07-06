@@ -81,9 +81,8 @@ var deniedSyscalls = []string{
 }
 
 func setupSeccomp(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		NoNewPrivileges: true,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	// NoNewPrivileges requires Go 1.24+ — skip for 1.23 compatibility
 }
 
 type MCPServer struct {
