@@ -165,6 +165,12 @@ type StatusResponsePayload struct {
 	MCPServersActive int              `json:"mcp_servers_active"`
 }
 
+type WideModelStatus struct {
+	Status  string `json:"status"`
+	Name    string `json:"name,omitempty"`
+	ModelID string `json:"model_id,omitempty"`
+}
+
 type ModelRegistryEntry struct {
 	ModelID     string   `json:"model_id"`
 	Tags        []string `json:"tags,omitempty"`
