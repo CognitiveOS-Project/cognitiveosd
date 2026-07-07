@@ -44,6 +44,9 @@ type Daemon struct {
 	clients   map[string]*ClientConn
 	clientsMu sync.RWMutex
 
+	modelRegistry   map[string]ModelRegistryEntry
+	modelRegistryMu sync.RWMutex
+
 	signalCh    chan os.Signal
 	done        chan struct{}
 	idleTimer   *time.Timer
@@ -59,13 +62,14 @@ func New(cfg config.Config) *Daemon {
 	}
 
 	return &Daemon{
-		Config:    cfg,
-		State:     StateIdle,
-		startTime: time.Now(),
-		clients:   make(map[string]*ClientConn),
-		signalCh:  make(chan os.Signal, 1),
-		done:      make(chan struct{}),
-		Log:       logger,
+		Config:        cfg,
+		State:         StateIdle,
+		startTime:     time.Now(),
+		clients:       make(map[string]*ClientConn),
+		modelRegistry: make(map[string]ModelRegistryEntry),
+		signalCh:      make(chan os.Signal, 1),
+		done:          make(chan struct{}),
+		Log:           logger,
 	}
 }
 
@@ -84,6 +88,11 @@ func (d *Daemon) Run() error {
 	d.wmClient = NewWideModelClient(d)
 	d.rmClient = NewRawModelClient(d)
 
+	if err := d.rmClient.Connect(); err != nil {
+		return fmt.Errorf("FATAL: raw model unavailable — system cannot operate safely: %w", err)
+	}
+	d.Log.Println("raw model connected")
+
 	listener, err := NewSocketListener(d)
 	if err != nil {
 		return fmt.Errorf("socket: %w", err)
@@ -94,12 +103,6 @@ func (d *Daemon) Run() error {
 
 	initialAudit := d.auditor.Collect()
 	d.Log.Printf("initial audit: %d MB RAM available", initialAudit.RAM.AvailableMB)
-
-	if err := d.rmClient.Connect(); err != nil {
-		d.Log.Printf("raw model not available: %v", err)
-	} else {
-		d.Log.Println("raw model connected")
-	}
 
 	d.auditor.Start()
 
@@ -156,6 +159,185 @@ func (d *Daemon) scanPatches() {
 		}
 	}
 	d.Log.Printf("patches scanned: %d installed", count)
+	d.buildModelRegistry()
+}
+
+func (d *Daemon) buildModelRegistry() {
+	d.modelRegistryMu.Lock()
+	defer d.modelRegistryMu.Unlock()
+
+	d.modelRegistry = make(map[string]ModelRegistryEntry)
+
+	entries, err := os.ReadDir(d.Config.PatchDir)
+	if err != nil {
+		d.Log.Printf("build model registry: %v", err)
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		manifestPath := filepath.Join(d.Config.PatchDir, e.Name(), "cognitive.json")
+		data, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+
+		var manifest struct {
+			Brain *struct {
+				WideModel *struct {
+					Routing *struct {
+						ModelID string   `json:"model_id"`
+						Tags    []string `json:"tags"`
+					} `json:"routing"`
+					Weights *struct {
+						Remote *struct {
+							Filename string `json:"filename"`
+						} `json:"remote"`
+					} `json:"weights"`
+				} `json:"wide_model"`
+			} `json:"brain"`
+		}
+
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			continue
+		}
+
+		if manifest.Brain == nil || manifest.Brain.WideModel == nil || manifest.Brain.WideModel.Routing == nil {
+			continue
+		}
+
+		routing := manifest.Brain.WideModel.Routing
+		if routing.ModelID == "" {
+			continue
+		}
+
+		ggufPath := ""
+		if manifest.Brain.WideModel.Weights != nil && manifest.Brain.WideModel.Weights.Remote != nil {
+			ggufPath = filepath.Join(d.Config.PatchDir, e.Name(), "weights",
+				manifest.Brain.WideModel.Weights.Remote.Filename)
+		}
+
+		if ggufPath == "" {
+			d.Log.Printf("model registry: no gguf weights path for %s, skipping", routing.ModelID)
+			continue
+		}
+
+		if _, err := os.Stat(ggufPath); err != nil {
+			d.Log.Printf("model registry: gguf not found at %s for %s", ggufPath, routing.ModelID)
+			continue
+		}
+
+		d.modelRegistry[routing.ModelID] = ModelRegistryEntry{
+			ModelID:     routing.ModelID,
+			Tags:        routing.Tags,
+			GGUFFilePath: ggufPath,
+		}
+		d.Log.Printf("model registry: registered %s (%s)", routing.ModelID, ggufPath)
+	}
+}
+
+func (d *Daemon) modelRegistryRoutingHints() map[string][]string {
+	d.modelRegistryMu.RLock()
+	defer d.modelRegistryMu.RUnlock()
+
+	hints := make(map[string][]string, len(d.modelRegistry))
+	for id, entry := range d.modelRegistry {
+		hints[id] = entry.Tags
+	}
+	return hints
+}
+
+func (d *Daemon) resolveModelGGUF(modelID string) string {
+	d.modelRegistryMu.RLock()
+	defer d.modelRegistryMu.RUnlock()
+
+	if entry, ok := d.modelRegistry[modelID]; ok {
+		return entry.GGUFFilePath
+	}
+	return ""
+}
+
+func (d *Daemon) hotSwapWideModel(modelID string) error {
+	if modelID == "" {
+		return nil
+	}
+
+	currentID := d.wmClient.LoadedModelID()
+	if currentID == modelID {
+		return nil
+	}
+
+	ggufPath := d.resolveModelGGUF(modelID)
+	if ggufPath == "" {
+		return fmt.Errorf("model %s not found in registry", modelID)
+	}
+
+	d.Log.Printf("hot-swap: unloading current model, loading %s (%s)", modelID, ggufPath)
+
+	if err := d.wmClient.Unload("swap"); err != nil {
+		d.Log.Printf("hot-swap: unload error: %v", err)
+	}
+
+	systemPrompt, err := d.mergeSystemPrompts(modelID)
+	if err != nil {
+		d.Log.Printf("hot-swap: merge system prompts: %v", err)
+	}
+
+	if err := d.wmClient.LoadWithID(ggufPath, modelID); err != nil {
+		d.Log.Printf("hot-swap: load error: %v", err)
+		return fmt.Errorf("load %s: %w", modelID, err)
+	}
+
+	if systemPrompt != "" {
+		d.wmClient.SetSystemPrompt(systemPrompt)
+	}
+
+	d.Log.Printf("hot-swap: active model is now %s", modelID)
+	return nil
+}
+
+func (d *Daemon) mergeSystemPrompts(modelID string) (string, error) {
+	var prompts []string
+
+	basePath := "/cognitiveos/etc/base-prompt.md"
+	if data, err := os.ReadFile(basePath); err == nil {
+		prompts = append(prompts, string(data))
+	}
+
+	entries, err := os.ReadDir(d.Config.PatchDir)
+	if err != nil {
+		return strings.Join(prompts, "\n"), nil
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		manifestPath := filepath.Join(d.Config.PatchDir, e.Name(), "cognitive.json")
+		data, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+		var manifest struct {
+			Runtime *struct {
+				SystemPrompt string `json:"system_prompt"`
+			} `json:"runtime"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			continue
+		}
+		if manifest.Runtime != nil && manifest.Runtime.SystemPrompt != "" {
+			promptPath := filepath.Join(d.Config.PatchDir, e.Name(), manifest.Runtime.SystemPrompt)
+			if promptData, err := os.ReadFile(promptPath); err == nil {
+				prompts = append(prompts, string(promptData))
+			}
+		}
+	}
+
+	merged := strings.Join(prompts, "\n\n")
+	return merged, nil
 }
 
 func (d *Daemon) patchCount() int {
@@ -176,6 +358,39 @@ func (d *Daemon) patchCount() int {
 }
 
 func (d *Daemon) loadWideModel() error {
+	d.modelRegistryMu.RLock()
+	hasRegistry := len(d.modelRegistry) > 0
+	d.modelRegistryMu.RUnlock()
+
+	if hasRegistry {
+		d.modelRegistryMu.RLock()
+		for id, entry := range d.modelRegistry {
+			if d.rmClient.IsReady() {
+				_, _, _, allowed, err := d.rmClient.AuditResources(0)
+				if err != nil {
+					d.Log.Printf("audit before load: %v", err)
+				} else if !allowed {
+					d.Log.Printf("WARN: insufficient resources for Wide Model load")
+					d.modelRegistryMu.RUnlock()
+					return fmt.Errorf("insufficient resources")
+				}
+			}
+			if err := d.wmClient.LoadWithID(entry.GGUFFilePath, id); err != nil {
+				d.Log.Printf("load model %s (%s): %v", id, entry.GGUFFilePath, err)
+				continue
+			}
+			systemPrompt, _ := d.mergeSystemPrompts(id)
+			if systemPrompt != "" {
+				d.wmClient.SetSystemPrompt(systemPrompt)
+			}
+			d.Log.Printf("wide model loaded from registry: %s (%s)", id, entry.GGUFFilePath)
+			d.modelRegistryMu.RUnlock()
+			return nil
+		}
+		d.modelRegistryMu.RUnlock()
+		d.Log.Printf("no registry models could be loaded, falling back to directory scan")
+	}
+
 	modelDir := filepath.Join(d.Config.ModelDir, "wide", "active")
 	entries, err := os.ReadDir(modelDir)
 	if err != nil {
@@ -194,7 +409,11 @@ func (d *Daemon) loadWideModel() error {
 					return fmt.Errorf("insufficient resources")
 				}
 			}
-			return d.wmClient.Load(modelPath)
+			if err := d.wmClient.Load(modelPath); err != nil {
+				return err
+			}
+			d.Log.Printf("wide model loaded from directory: %s", modelPath)
+			return nil
 		}
 	}
 	return fmt.Errorf("no model file found in %s", modelDir)
@@ -212,7 +431,7 @@ func (d *Daemon) startIdleTimer() {
 		if time.Since(d.lastRequest) >= idleTimeoutDuration {
 			d.mu.Unlock()
 			d.Log.Println("idle timeout: unloading Wide Model")
-			_ = d.wmClient.Unload("idle_timeout")
+			d.wmClient.Unload("idle_timeout")
 			d.SetState(StateIdle)
 		} else {
 			d.mu.Unlock()
@@ -235,9 +454,8 @@ func (d *Daemon) shutdown(reason string) {
 
 	d.broadcast(NewEnvelope("shutdown_notice", "cognitiveosd", ShutdownNoticePayload{Reason: reason}))
 
-	_ = d.wmClient.Unload(reason)
+	d.wmClient.Unload(reason)
 	d.mcpMgr.ShutdownAll()
-	d.rmClient.Close()
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -255,16 +473,16 @@ func (d *Daemon) shutdown(reason string) {
 	switch reason {
 	case "security_code":
 		d.Log.Println("SECURITY: powering off peripherals")
-		_ = exec.Command("gpioset", "0", "0=0").Run()
-		_ = exec.Command("gpioset", "0", "1=0").Run()
+		exec.Command("gpioset", "0", "0=0").Run()
+		exec.Command("gpioset", "0", "1=0").Run()
 	case "idle_code":
 		d.Log.Println("IDLE: entering low-power suspend")
-		_ = exec.Command("sysctl", "-w", "kernel.printk=0").Run()
+		exec.Command("sysctl", "-w", "kernel.printk=0").Run()
 	case "reset_code":
 		d.Log.Println("RESET: wiping data partitions")
-		_ = exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
-		_ = exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run()
-		_ = exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
+		exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
+		exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run()
+		exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
 	}
 
 	d.Log.Println("shutdown complete")

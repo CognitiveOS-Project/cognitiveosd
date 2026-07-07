@@ -20,6 +20,7 @@ type Config struct {
 	AuditInterval int
 	MCPBinDir     string
 	MCPBridges    []string
+	RawModelPath  string
 }
 
 var Default = Config{
@@ -44,6 +45,7 @@ var Default = Config{
 		"serial-mcp",
 		"package-mcp",
 	},
+	RawModelPath: "/cognitiveos/models/raw/raw-model.gguf",
 }
 
 func FromEnv() Config {
@@ -68,6 +70,9 @@ func FromEnv() Config {
 	}
 	if v := os.Getenv("COGNITIVEOS_MCP_BIN_DIR"); v != "" {
 		c.MCPBinDir = v
+	}
+	if v := os.Getenv("COGNITIVEOS_RAW_MODEL_PATH"); v != "" {
+		c.RawModelPath = v
 	}
 
 	// Derive paths from base dirs
