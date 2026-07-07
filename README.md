@@ -33,7 +33,7 @@ JSON-over-Unix socket at `/cognitiveos/run/daemon.sock`. Newline-delimited JSON 
 ## Build
 
 ```bash
-go build -o bin/cognitiveosd ./cmd/cognitiveosd
+make build
 ```
 
 ## Configuration
@@ -59,13 +59,21 @@ go build -o bin/cognitiveosd ./cmd/cognitiveosd
 - [Product Specs](https://github.com/CognitiveOS-Project/product-specs) — daemon API specification
 - [CognitiveOS Project](https://github.com/CognitiveOS-Project) — GitHub organization
 
+## Build
+
+```bash
+make build    # Compile to build/bin/cognitiveosd
+make test     # Run tests
+make lint     # Run go vet
+make clean    # Remove build artifacts
+```
+
 ## Contributing
 
-1. Branch from `development`, not `main`
-2. Use topic branches: `feature/<name>`, `fix/<name>`, `bugfix/<name>`
-3. Open a PR to `development` with a clear title and description
-4. Merge via squash after review
-5. Changes flow to `main` via a release PR
+1. Branch from `main`
+2. Use topic branches: `feature/<name>`, `fix/<name>`
+3. Open a PR to `main` with a clear title and description
+4. Merge after review
 
 See the [SDLC repo](https://github.com/CognitiveOS-Project/sdlc) for the full contribution guide, code review standards, and testing strategy.
 

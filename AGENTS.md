@@ -46,7 +46,10 @@ JSON-over-Unix socket at `/cognitiveos/run/daemon.sock`. Newline-delimited JSON 
 ## Build
 
 ```bash
-go build -o bin/cognitiveosd ./cmd/cognitiveosd
+make build    # compile to build/bin/cognitiveosd
+make test     # run tests
+make lint     # go vet
+make clean    # remove build artifacts
 ```
 
 ## Configuration
