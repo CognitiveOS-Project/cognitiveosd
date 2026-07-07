@@ -36,16 +36,15 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	d.touchIdleTimer()
 
-	action, modifiedPrompt, reason, err := d.rmClient.ValidatePrompt(prompt)
+	routingHints := d.modelRegistryRoutingHints()
+	action, modifiedPrompt, reason, modelID, err := d.rmClient.ValidatePrompt(prompt, routingHints)
 	if err != nil {
 		d.Log.Printf("raw model validate error: %v", err)
-		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     fmt.Sprintf("Guardrail error: %v", err),
 			ContentType: "text",
-		})); err != nil {
-			d.Log.Printf("send guardrail error: %v", err)
-		}
+		}))
 		d.SetState(StateListening)
 		return
 	}
@@ -56,13 +55,11 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 		if reason != "" {
 			msg = "Guardrail: " + reason
 		}
-		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     msg,
 			ContentType: "text",
-		})); err != nil {
-			d.Log.Printf("send deny message: %v", err)
-		}
+		}))
 		d.SetState(StateListening)
 		return
 
@@ -73,16 +70,20 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	case "allow":
 	}
 
+	if modelID != "" {
+		if err := d.hotSwapWideModel(modelID); err != nil {
+			d.Log.Printf("hot-swap to %s failed: %v, using current model", modelID, err)
+		}
+	}
+
 	resp, err := d.wmClient.Generate(prompt)
 	if err != nil {
 		d.Log.Printf("inference error: %v", err)
-		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     fmt.Sprintf("Error: %v", err),
 			ContentType: "text",
-		})); err != nil {
-			d.Log.Printf("send inference error: %v", err)
-		}
+		}))
 		d.SetState(StateListening)
 		return
 	}
@@ -90,23 +91,19 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	finalResponse, toolResults := d.toolLoop(resp, prompt, sessionID)
 
 	for _, tr := range toolResults {
-		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     tr,
 			ContentType: "tool_result",
-		})); err != nil {
-			d.Log.Printf("send tool result: %v", err)
-		}
+		}))
 	}
 
 	d.SetState(StateListening)
-	if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+	d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 		SessionID:   sessionID,
 		Content:     finalResponse,
 		ContentType: "text",
-	})); err != nil {
-		d.Log.Printf("send final response: %v", err)
-	}
+	}))
 }
 
 func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, []string) {
@@ -324,7 +321,7 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	case "idle":
 		effect = "entering idle state"
 		d.SetState(StateIdleRequested)
-		_ = d.wmClient.Unload("idle")
+		d.wmClient.Unload("idle")
 		d.mcpMgr.ShutdownAll()
 		d.SetState(StateIdle)
 
@@ -452,10 +449,15 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 
 	wmStatus := WideModelStatus{Status: "unloaded"}
 	if d.wmClient.IsLoaded() {
-		wmStatus = WideModelStatus{Status: "loaded", Name: d.wmClient.LoadedModelName()}
+		wmStatus = WideModelStatus{
+			Status:  "loaded",
+			Name:    d.wmClient.LoadedModelName(),
+			ModelID: d.wmClient.LoadedModelID(),
+		}
 	}
 
 	mcpCount := d.mcpMgr.ActiveCount()
+	regCount := len(d.modelRegistryRoutingHints())
 
 	resp := Envelope{
 		Type:      "status_response",
@@ -467,6 +469,7 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 		State:            state,
 		UptimeSeconds:    uptime,
 		WideModel:        wmStatus,
+		ModelRegistry:    regCount,
 		PatchesInstalled: d.patchCount(),
 		MCPServersActive: mcpCount,
 	}

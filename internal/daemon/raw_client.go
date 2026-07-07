@@ -154,26 +154,30 @@ func (r *RawModelClient) AuditResources(requestedMB int64) (bool, int64, int64, 
 	return resp.Available, resp.TotalMB, resp.FreeMB, resp.Allowed, nil
 }
 
-func (r *RawModelClient) ValidatePrompt(prompt string) (string, string, string, error) {
+func (r *RawModelClient) ValidatePrompt(prompt string, routingHints map[string][]string) (string, string, string, string, error) {
 	params := map[string]interface{}{
 		"prompt": prompt,
+	}
+	if len(routingHints) > 0 {
+		params["routing_hints"] = routingHints
 	}
 
 	result, err := r.call("validate_prompt", params)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 
 	var resp struct {
 		Action         string `json:"action"`
 		ModifiedPrompt string `json:"modified_prompt,omitempty"`
 		Reason         string `json:"reason,omitempty"`
+		Model          string `json:"model,omitempty"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return "", "", "", fmt.Errorf("parse validate_prompt response: %w", err)
+		return "", "", "", "", fmt.Errorf("parse validate_prompt response: %w", err)
 	}
 
-	return resp.Action, resp.ModifiedPrompt, resp.Reason, nil
+	return resp.Action, resp.ModifiedPrompt, resp.Reason, resp.Model, nil
 }
 
 func (r *RawModelClient) ValidatePackageRequest(params PackageValidationParams) (PackageValidationResult, error) {
