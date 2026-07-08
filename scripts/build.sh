@@ -1,7 +1,8 @@
 #!/bin/sh
-set -euo pipefail
+# shellcheck disable=SC3040
+set -eu
 
-if ! command -v go &>/dev/null; then
+if ! command -v go >/dev/null 2>&1; then
     if [ ! -f /tmp/go/bin/go ]; then
         echo "Installing Go..."
         curl -sL https://go.dev/dl/go1.24.linux-amd64.tar.gz | tar -C /tmp -xz
