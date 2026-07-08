@@ -77,10 +77,12 @@ type ClientConn struct {
 }
 
 func NewClientConn(d *Daemon, conn *net.UnixConn) *ClientConn {
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, 3*1024*1024), 3*1024*1024)
 	return &ClientConn{
 		daemon:  d,
 		conn:    conn,
-		reader:  bufio.NewScanner(conn),
+		reader:  scanner,
 		encoder: json.NewEncoder(conn),
 		done:    make(chan struct{}),
 	}

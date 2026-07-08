@@ -7,7 +7,7 @@ BUILD_DIR := build
 BIN_DIR := $(BUILD_DIR)/bin
 GO := go
 
-.PHONY: build test lint clean
+.PHONY: build test test-integration lint clean
 
 build: $(BIN_DIR)/cognitiveosd
 
@@ -18,6 +18,9 @@ $(BIN_DIR)/cognitiveosd:
 
 test:
 	$(GO) test ./... -v -count=1
+
+test-integration: build
+	$(GO) test -tags=integration -v -count=1 ./internal/daemon/
 
 lint:
 	shellcheck scripts/build.sh

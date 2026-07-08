@@ -23,7 +23,10 @@ func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	d.SetState(StateProcessing)
 	d.SendOK(env, conn, nil)
 
-	sessionID := payload.Context.SessionID
+	sessionID := ""
+	if payload.Context != nil {
+		sessionID = payload.Context.SessionID
+	}
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	}
@@ -426,21 +429,10 @@ func (d *Daemon) handleMCPResult(env Envelope, conn *ClientConn) {
 func (d *Daemon) handleAuditRequest(env Envelope, conn *ClientConn) {
 	report := d.auditor.Collect()
 
-	resp := Envelope{
-		Type:      "audit_report",
-		ID:        env.ID,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		From:      "cognitiveosd",
-	}
-	payload := AuditReportPayload{
+	d.SendOK(env, conn, AuditReportPayload{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Resources: report,
-	}
-	respPayload, _ := json.Marshal(payload)
-	resp.Payload = respPayload
-	if err := conn.Send(resp); err != nil {
-		d.Log.Printf("send audit_report: %v", err)
-	}
+	})
 }
 
 func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
@@ -459,23 +451,12 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 	mcpCount := d.mcpMgr.ActiveCount()
 	regCount := len(d.modelRegistryRoutingHints())
 
-	resp := Envelope{
-		Type:      "status_response",
-		ID:        env.ID,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		From:      "cognitiveosd",
-	}
-	payload := StatusResponsePayload{
+	d.SendOK(env, conn, StatusResponsePayload{
 		State:            state,
 		UptimeSeconds:    uptime,
 		WideModel:        wmStatus,
 		ModelRegistry:    regCount,
 		PatchesInstalled: d.patchCount(),
 		MCPServersActive: mcpCount,
-	}
-	respPayload, _ := json.Marshal(payload)
-	resp.Payload = respPayload
-	if err := conn.Send(resp); err != nil {
-		d.Log.Printf("send status_response: %v", err)
-	}
+	})
 }

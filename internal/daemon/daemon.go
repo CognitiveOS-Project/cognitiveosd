@@ -524,7 +524,7 @@ func (d *Daemon) broadcast(env Envelope) {
 	}
 }
 
-func (d *Daemon) SendResponse(env Envelope, status PayloadStatus) {
+func (d *Daemon) SendResponse(env *Envelope, status PayloadStatus) {
 	respPayload, _ := json.Marshal(status)
 	env.Payload = respPayload
 }
@@ -560,14 +560,14 @@ func (d *Daemon) HandleMessage(env Envelope, conn *ClientConn) {
 }
 
 func (d *Daemon) SendError(env Envelope, conn *ClientConn, code, message string) {
+	status := ErrorPayload(code, message)
 	resp := Envelope{
-		Type:      env.Type + "_response",
+		Type:      responseType(env.Type),
 		ID:        env.ID,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		From:      "cognitiveosd",
 	}
-	status := ErrorPayload(code, message)
-	d.SendResponse(resp, status)
+	d.SendResponse(&resp, status)
 	if err := conn.Send(resp); err != nil {
 		d.Log.Printf("send error response: %v", err)
 	}
@@ -581,7 +581,7 @@ func (d *Daemon) SendOK(env Envelope, conn *ClientConn, data interface{}) {
 		From:      "cognitiveosd",
 	}
 	status := OKPayload(data)
-	d.SendResponse(resp, status)
+	d.SendResponse(&resp, status)
 	if err := conn.Send(resp); err != nil {
 		d.Log.Printf("send ok response: %v", err)
 	}

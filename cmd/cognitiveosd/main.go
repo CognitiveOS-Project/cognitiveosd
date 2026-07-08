@@ -23,6 +23,8 @@ func main() {
 	flag.IntVar(&cfg.AuditInterval, "audit-interval", cfg.AuditInterval, "audit interval in seconds")
 	flag.Parse()
 
+	cfg.Derive()
+
 	d := daemon.New(cfg)
 	logger := log.New(os.Stdout, "cognitiveosd: ", log.LstdFlags)
 

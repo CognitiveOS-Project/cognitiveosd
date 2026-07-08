@@ -59,7 +59,7 @@ func (r *RawModelClient) Connect() error {
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	r.conn = conn
 
-	health, err := r.call("healthcheck", nil)
+	health, err := r.callConn(conn, "healthcheck", nil)
 	if err != nil {
 		conn.Close()
 		r.conn = nil
@@ -214,13 +214,14 @@ var rpcID int
 
 func (r *RawModelClient) call(method string, params interface{}) (json.RawMessage, error) {
 	r.mu.Lock()
-	conn := r.conn
-	r.mu.Unlock()
-
-	if conn == nil {
+	defer r.mu.Unlock()
+	if r.conn == nil {
 		return nil, fmt.Errorf("E_NOT_CONNECTED: raw model not connected")
 	}
+	return r.callConn(r.conn, method, params)
+}
 
+func (r *RawModelClient) callConn(conn net.Conn, method string, params interface{}) (json.RawMessage, error) {
 	rpcID++
 
 	var rawParams json.RawMessage
@@ -243,20 +244,16 @@ func (r *RawModelClient) call(method string, params interface{}) (json.RawMessag
 
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
-		r.mu.Lock()
 		r.conn = nil
 		r.ready = false
-		r.mu.Unlock()
 		return nil, fmt.Errorf("E_CONNECTION_LOST: send to raw model: %w", err)
 	}
 
 	var resp RawRPCResponse
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&resp); err != nil {
-		r.mu.Lock()
 		r.conn = nil
 		r.ready = false
-		r.mu.Unlock()
 		return nil, fmt.Errorf("E_CONNECTION_LOST: read from raw model: %w", err)
 	}
 

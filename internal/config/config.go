@@ -75,13 +75,18 @@ func FromEnv() Config {
 		c.RawModelPath = v
 	}
 
-	// Derive paths from base dirs
+	c.Derive()
+
+	return c
+}
+
+// Derive recalculates paths that depend on RunDir/LogDir after overrides.
+func (c *Config) Derive() {
 	c.SocketPath = filepath.Join(c.RunDir, "daemon.sock")
+	c.RawSocketPath = filepath.Join(c.RunDir, "raw.sock")
 	c.PidFilePath = filepath.Join(c.RunDir, "cognitiveosd.pid")
 	c.LogFile = filepath.Join(c.LogDir, "cognitiveosd.log")
 	c.AuditDir = filepath.Join(c.RunDir, "..", "audit")
-
-	return c
 }
 
 func (c *Config) EnsureDirs() error {
