@@ -370,9 +370,8 @@ func (d *Daemon) loadWideModel() error {
 				if err != nil {
 					d.Log.Printf("audit before load: %v", err)
 				} else if !allowed {
-					d.Log.Printf("WARN: insufficient resources for Wide Model load")
 					d.modelRegistryMu.RUnlock()
-					return fmt.Errorf("insufficient resources")
+					return fmt.Errorf("E_INSUFFICIENT_RESOURCES: not enough RAM to load Wide Model")
 				}
 			}
 			if err := d.wmClient.LoadWithID(entry.GGUFFilePath, id); err != nil {
@@ -405,8 +404,7 @@ func (d *Daemon) loadWideModel() error {
 				if err != nil {
 					d.Log.Printf("audit before load: %v", err)
 				} else if !allowed {
-					d.Log.Printf("WARN: insufficient resources for Wide Model load")
-					return fmt.Errorf("insufficient resources")
+					return fmt.Errorf("E_INSUFFICIENT_RESOURCES: not enough RAM to load Wide Model")
 				}
 			}
 			if err := d.wmClient.Load(modelPath); err != nil {
@@ -485,6 +483,7 @@ func (d *Daemon) shutdown(reason string) {
 		exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
 	}
 
+	exec.Command("umount", d.Config.RunDir).Run()
 	d.Log.Println("shutdown complete")
 }
 
@@ -530,6 +529,10 @@ func (d *Daemon) SendResponse(env *Envelope, status PayloadStatus) {
 }
 
 func (d *Daemon) HandleMessage(env Envelope, conn *ClientConn) {
+	if d.CurrentState() == StateShutdown {
+		d.SendError(env, conn, "E_SHUTDOWN", "daemon is shutting down")
+		return
+	}
 	if len(env.Payload) > 1048576 {
 		d.SendError(env, conn, "E_TOO_LARGE", "message exceeds 1 MB limit")
 		return

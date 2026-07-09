@@ -151,7 +151,7 @@ func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, [
 				validationResult, err := d.rmClient.ValidatePackageRequest(validationParams)
 				if err != nil {
 					d.Log.Printf("package validation error: %v", err)
-					results = append(results, fmt.Sprintf("Error validating %s: %v", tc.Tool, err))
+					results = append(results, fmt.Sprintf("E_PACKAGE_MANIFEST_FETCH: Cannot validate %s: %v", tc.Tool, err))
 					continue
 				}
 
@@ -161,7 +161,7 @@ func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, [
 						reason = "operation denied by system guardrail"
 					}
 					d.Log.Printf("package validation denied: %s (%s)", tc.Tool, reason)
-					results = append(results, fmt.Sprintf("Tool %s denied: %s", tc.Tool, reason))
+					results = append(results, fmt.Sprintf("E_PACKAGE_DENIED: Tool %s denied: %s", tc.Tool, reason))
 					continue
 				}
 			}
@@ -440,6 +440,11 @@ func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 	uptime := int64(d.Uptime().Seconds())
 
 	wmStatus := WideModelStatus{Status: "unloaded"}
+	if d.CurrentState() == StateProcessing || d.CurrentState() == StateListening {
+		if !d.wmClient.IsLoaded() {
+			wmStatus = WideModelStatus{Status: "loading"}
+		}
+	}
 	if d.wmClient.IsLoaded() {
 		wmStatus = WideModelStatus{
 			Status:  "loaded",

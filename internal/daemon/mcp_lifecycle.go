@@ -330,6 +330,33 @@ func (m *MCPManager) Invoke(toolName string, args map[string]interface{}, sessio
 		return MCPResultPayload{}, fmt.Errorf("parse MCP response: %w", err)
 	}
 
+	result, _ := rpcResp["result"].(map[string]interface{})
+
+	if isErr, _ := result["isError"].(bool); isErr {
+		content, _ := result["content"].([]interface{})
+		var text string
+		for _, c := range content {
+			if cm, ok := c.(map[string]interface{}); ok {
+				text += fmt.Sprintf("%v", cm["text"])
+			}
+		}
+		code := "E_INTERNAL"
+		msg := text
+		if strings.HasPrefix(text, "ERROR:") {
+			parts := strings.SplitN(text[6:], ":", 2)
+			if len(parts) >= 1 && parts[0] != "" {
+				code = parts[0]
+			}
+			if len(parts) >= 2 {
+				msg = strings.TrimSpace(parts[1])
+			}
+		}
+		return MCPResultPayload{
+			Status: "error",
+			Error:  &ErrorInfo{Code: code, Message: msg},
+		}, nil
+	}
+
 	if errVal, ok := rpcResp["error"]; ok {
 		errObj := errVal.(map[string]interface{})
 		return MCPResultPayload{
@@ -341,7 +368,6 @@ func (m *MCPManager) Invoke(toolName string, args map[string]interface{}, sessio
 		}, nil
 	}
 
-	result, _ := rpcResp["result"].(map[string]interface{})
 	content, _ := result["content"].([]interface{})
 
 	var items []ContentItem

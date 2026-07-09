@@ -50,13 +50,8 @@ func (a *Auditor) Collect() AuditResources {
 	return AuditResources{
 		RAM:     a.readRAM(),
 		Storage: a.readStorage(),
-		CPU: CPUInfo{
-			Cores:      0,
-			LoadPercent: 0,
-		},
-		NPU: NPUInfo{
-			Available: false,
-		},
+		CPU:     a.readCPU(),
+		NPU:     a.readNPU(),
 		Network: a.readNetwork(),
 	}
 }
@@ -111,6 +106,52 @@ func (a *Auditor) readStorage() StorageInfo {
 		PatchesMB:   patchesMB,
 		ModelsMB:    modelsMB,
 	}
+}
+
+func (a *Auditor) readCPU() CPUInfo {
+	cores := 0
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "processor") {
+				cores++
+			}
+		}
+	}
+	if cores == 0 {
+		cores = 1
+	}
+
+	loadPercent := 0.0
+	data, err = os.ReadFile("/proc/loadavg")
+	if err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) >= 1 {
+			fmt.Sscanf(fields[0], "%f", &loadPercent)
+			loadPercent = loadPercent / float64(cores) * 100
+		}
+	}
+
+	return CPUInfo{
+		Cores:       cores,
+		LoadPercent: loadPercent,
+	}
+}
+
+func (a *Auditor) readNPU() NPUInfo {
+	entries, err := os.ReadDir("/sys/class/accelerator")
+	if err != nil || len(entries) == 0 {
+		entries, err = os.ReadDir("/dev")
+		if err == nil {
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), "npu") || strings.HasPrefix(e.Name(), "hailo") || strings.HasPrefix(e.Name(), "neural") {
+					return NPUInfo{Available: true, Model: e.Name()}
+				}
+			}
+		}
+		return NPUInfo{Available: false}
+	}
+	return NPUInfo{Available: true, Model: entries[0].Name()}
 }
 
 func (a *Auditor) readNetwork() NetworkInfo {
