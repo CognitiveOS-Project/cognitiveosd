@@ -303,18 +303,18 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 
 	effect := ""
 
-	if d.rmClient.IsReady() {
-		status, action, err := d.rmClient.ValidateSystemCode(code, origin)
-		if err != nil {
-			d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
-			return
+		if d.rmClient.IsReady() {
+			status, _, err := d.rmClient.ValidateSystemCode(code, origin)
+			if err != nil {
+				d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
+				return
+			}
+			if status != "valid" {
+				d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
+				return
+			}
 		}
-		if status != "valid" {
-			d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
-			return
-		}
-		_ = action
-	}
+
 
 	switch code {
 	case "wake":
@@ -331,13 +331,17 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	case "security":
 		effect = "SECURITY SHUTDOWN: terminating all processes"
 		d.SetState(StateSecurity)
-		_ = d.wmClient.Unload("security")
+		if err := d.wmClient.Unload("security"); err != nil {
+			d.Log.Printf("unload wide model on security: %v", err)
+		}
 		d.mcpMgr.ShutdownAll()
 		d.shutdown("security_code")
 
 	case "reset":
 		effect = "RESET: wiping data and rebooting"
-		_ = d.wmClient.Unload("reset")
+		if err := d.wmClient.Unload("reset"); err != nil {
+			d.Log.Printf("unload wide model on reset: %v", err)
+		}
 		d.mcpMgr.ShutdownAll()
 		d.shutdown("reset_code")
 

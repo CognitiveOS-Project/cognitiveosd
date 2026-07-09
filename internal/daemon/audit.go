@@ -66,13 +66,15 @@ func (a *Auditor) readRAM() RAMInfo {
 		for _, line := range lines {
 			if strings.HasPrefix(line, "MemTotal:") {
 				var kb int64
-				_, _ = fmt.Sscanf(line, "MemTotal: %d kB", &kb)
-				totalMB = kb / 1024
+				if _, err := fmt.Sscanf(line, "MemTotal: %d kB", &kb); err == nil {
+					totalMB = kb / 1024
+				}
 			}
 			if strings.HasPrefix(line, "MemAvailable:") {
 				var kb int64
-				_, _ = fmt.Sscanf(line, "MemAvailable: %d kB", &kb)
-				availableMB = kb / 1024
+				if _, err := fmt.Sscanf(line, "MemAvailable: %d kB", &kb); err == nil {
+					availableMB = kb / 1024
+				}
 			}
 		}
 	}
@@ -127,7 +129,9 @@ func (a *Auditor) readCPU() CPUInfo {
 	if err == nil {
 		fields := strings.Fields(string(data))
 		if len(fields) >= 1 {
-			fmt.Sscanf(fields[0], "%f", &loadPercent)
+			if _, err := fmt.Sscanf(fields[0], "%f", &loadPercent); err != nil {
+				a.daemon.Log.Printf("parse loadavg: %v", err)
+			}
 			loadPercent = loadPercent / float64(cores) * 100
 		}
 	}
@@ -165,8 +169,8 @@ func (a *Auditor) readNetwork() NetworkInfo {
 		if name == "lo" {
 			continue
 		}
-		operState, _ := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate"))
-		if strings.TrimSpace(string(operState)) == "up" {
+		operState, err := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate"))
+		if err == nil && strings.TrimSpace(string(operState)) == "up" {
 			return NetworkInfo{
 				Connected:     true,
 				Interface:     name,
@@ -180,7 +184,7 @@ func (a *Auditor) readNetwork() NetworkInfo {
 
 func (a *Auditor) dirSizeMB(path string) int64 {
 	var total int64
-	_ = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -188,7 +192,9 @@ func (a *Auditor) dirSizeMB(path string) int64 {
 			total += info.Size()
 		}
 		return nil
-	})
+	}); err != nil {
+		a.daemon.Log.Printf("dir size walk %s: %v", path, err)
+	}
 	return int64(math.Ceil(float64(total) / (1024 * 1024)))
 }
 
@@ -200,7 +206,11 @@ func (a *Auditor) saveReport(r AuditResources) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Resources: r,
 	}
-	data, _ := json.MarshalIndent(report, "", "  ")
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		a.daemon.Log.Printf("marshal report: %v", err)
+		return
+	}
 	if err := os.WriteFile(filepath.Join(a.daemon.Config.AuditDir, "current.json"), data, 0644); err != nil {
 		a.daemon.Log.Printf("save report: %v", err)
 	}

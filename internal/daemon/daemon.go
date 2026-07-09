@@ -519,7 +519,9 @@ func (d *Daemon) broadcast(env Envelope) {
 	d.clientsMu.RLock()
 	defer d.clientsMu.RUnlock()
 	for _, c := range d.clients {
-		_ = c.Send(env)
+		if err := c.Send(env); err != nil {
+			d.Log.Printf("broadcast send error: %v", err)
+		}
 	}
 }
 
