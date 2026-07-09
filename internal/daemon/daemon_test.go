@@ -19,8 +19,8 @@ func TestNewEnvelope(t *testing.T) {
 	if env.From != "test-component" {
 		t.Fatalf("expected test-component, got %s", env.From)
 	}
-	if env.ID != "" {
-		t.Fatalf("expected empty id, got %s", env.ID)
+	if len(env.ID) != 36 || env.ID[8] != '-' {
+		t.Fatalf("expected UUID v4 id, got %q", env.ID)
 	}
 	if env.Timestamp == "" {
 		t.Fatal("expected timestamp")
