@@ -429,7 +429,9 @@ func (d *Daemon) startIdleTimer() {
 		if time.Since(d.lastRequest) >= idleTimeoutDuration {
 			d.mu.Unlock()
 			d.Log.Println("idle timeout: unloading Wide Model")
-			d.wmClient.Unload("idle_timeout")
+			if err := d.wmClient.Unload("idle_timeout"); err != nil {
+				d.Log.Printf("idle unload error: %v", err)
+			}
 			d.SetState(StateIdle)
 		} else {
 			d.mu.Unlock()
@@ -452,7 +454,9 @@ func (d *Daemon) shutdown(reason string) {
 
 	d.broadcast(NewEnvelope("shutdown_notice", "cognitiveosd", ShutdownNoticePayload{Reason: reason}))
 
-	d.wmClient.Unload(reason)
+	if err := d.wmClient.Unload(reason); err != nil {
+		d.Log.Printf("shutdown unload error: %v", err)
+	}
 	d.mcpMgr.ShutdownAll()
 
 	time.Sleep(500 * time.Millisecond)
@@ -471,19 +475,33 @@ func (d *Daemon) shutdown(reason string) {
 	switch reason {
 	case "security_code":
 		d.Log.Println("SECURITY: powering off peripherals")
-		exec.Command("gpioset", "0", "0=0").Run()
-		exec.Command("gpioset", "0", "1=0").Run()
+		if err := exec.Command("gpioset", "0", "0=0").Run(); err != nil {
+			d.Log.Printf("gpioset 0=0 failed: %v", err)
+		}
+		if err := exec.Command("gpioset", "0", "1=0").Run(); err != nil {
+			d.Log.Printf("gpioset 1=0 failed: %v", err)
+		}
 	case "idle_code":
 		d.Log.Println("IDLE: entering low-power suspend")
-		exec.Command("sysctl", "-w", "kernel.printk=0").Run()
+		if err := exec.Command("sysctl", "-w", "kernel.printk=0").Run(); err != nil {
+			d.Log.Printf("sysctl printk failed: %v", err)
+		}
 	case "reset_code":
 		d.Log.Println("RESET: wiping data partitions")
-		exec.Command("rm", "-rf", "/cognitiveos/data/*").Run()
-		exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run()
-		exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run()
+		if err := exec.Command("rm", "-rf", "/cognitiveos/data/*").Run(); err != nil {
+			d.Log.Printf("wipe data failed: %v", err)
+		}
+		if err := exec.Command("rm", "-rf", "/cognitiveos/models/wide/*").Run(); err != nil {
+			d.Log.Printf("wipe models failed: %v", err)
+		}
+		if err := exec.Command("rm", "-rf", "/cognitiveos/patches/*").Run(); err != nil {
+			d.Log.Printf("wipe patches failed: %v", err)
+		}
 	}
 
-	exec.Command("umount", d.Config.RunDir).Run()
+	if err := exec.Command("umount", d.Config.RunDir).Run(); err != nil {
+		d.Log.Printf("umount failed: %v", err)
+	}
 	d.Log.Println("shutdown complete")
 }
 

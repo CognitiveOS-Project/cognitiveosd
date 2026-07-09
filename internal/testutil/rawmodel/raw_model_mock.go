@@ -182,7 +182,9 @@ func (m *Mock) handleConn(conn *net.UnixConn) {
 					"message": "Parse error",
 				},
 			}
-			json.NewEncoder(conn).Encode(resp)
+			if err := json.NewEncoder(conn).Encode(resp); err != nil {
+				return
+			}
 			continue
 		}
 

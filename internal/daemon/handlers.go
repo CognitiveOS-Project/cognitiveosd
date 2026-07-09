@@ -43,11 +43,13 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	action, modifiedPrompt, reason, modelID, err := d.rmClient.ValidatePrompt(prompt, routingHints)
 	if err != nil {
 		d.Log.Printf("raw model validate error: %v", err)
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     fmt.Sprintf("Guardrail error: %v", err),
 			ContentType: "text",
-		}))
+		})); err != nil {
+			d.Log.Printf("send guardrail error: %v", err)
+		}
 		d.SetState(StateListening)
 		return
 	}
@@ -58,20 +60,22 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 		if reason != "" {
 			msg = "Guardrail: " + reason
 		}
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     msg,
 			ContentType: "text",
-		}))
+		})); err != nil {
+			d.Log.Printf("send guardrail error: %v", err)
+		}
 		d.SetState(StateListening)
 		return
-
 	case "modify":
 		if modifiedPrompt != "" {
 			prompt = modifiedPrompt
 		}
 	case "allow":
 	}
+
 
 	if modelID != "" {
 		if err := d.hotSwapWideModel(modelID); err != nil {
@@ -82,11 +86,13 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	resp, err := d.wmClient.Generate(prompt)
 	if err != nil {
 		d.Log.Printf("inference error: %v", err)
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if sendErr := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     fmt.Sprintf("Error: %v", err),
 			ContentType: "text",
-		}))
+		})); sendErr != nil {
+			d.Log.Printf("send inference error: %v", sendErr)
+		}
 		d.SetState(StateListening)
 		return
 	}
@@ -94,20 +100,25 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	finalResponse, toolResults := d.toolLoop(resp, prompt, sessionID)
 
 	for _, tr := range toolResults {
-		d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+		if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 			SessionID:   sessionID,
 			Content:     tr,
 			ContentType: "tool_result",
-		}))
+		})); err != nil {
+			d.Log.Printf("send tool result error: %v", err)
+		}
 	}
 
-	d.SetState(StateListening)
-	d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
+	if err := d.SendToClient(from, NewEnvelope("output_deliver", "cognitiveosd", OutputPayload{
 		SessionID:   sessionID,
 		Content:     finalResponse,
 		ContentType: "text",
-	}))
+	})); err != nil {
+		d.Log.Printf("send final response error: %v", err)
+	}
+	d.SetState(StateListening)
 }
+
 
 func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, []string) {
 	currentResponse := response
@@ -324,9 +335,12 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	case "idle":
 		effect = "entering idle state"
 		d.SetState(StateIdleRequested)
-		d.wmClient.Unload("idle")
+		if err := d.wmClient.Unload("idle"); err != nil {
+			d.Log.Printf("unload wide model idle: %v", err)
+		}
 		d.mcpMgr.ShutdownAll()
 		d.SetState(StateIdle)
+
 
 	case "security":
 		effect = "SECURITY SHUTDOWN: terminating all processes"
