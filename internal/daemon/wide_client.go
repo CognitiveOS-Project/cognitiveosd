@@ -162,6 +162,29 @@ func (w *WideModelClient) Unload(reason string) error {
 	return nil
 }
 
+func (w *WideModelClient) LoadAdapter(adapterPath string) error {
+	body := map[string]interface{}{
+		"adapter": adapterPath,
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		return fmt.Errorf("encode adapter request: %w", err)
+	}
+
+	resp, err := w.client.Post(w.daemon.Config.InferenceURL+"/api/adapter", "application/json", &buf)
+	if err != nil {
+		return fmt.Errorf("adapter load request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("adapter load failed: HTTP %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 func (w *WideModelClient) IsLoaded() bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()

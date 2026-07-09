@@ -9,6 +9,88 @@ import (
 	"time"
 )
 
+func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
+	var payload struct {
+		Package    string `json:"package"`
+		Background bool   `json:"background"`
+		Epochs     int    `json:"epochs"`
+		Finalize   bool   `json:"finalize"`
+		Quantize   string `json:"quantize"`
+	}
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
+		return
+	}
+
+	if payload.Package == "" {
+		d.SendError(env, conn, "E_INVALID_PAYLOAD", "package is required")
+		return
+	}
+
+	// To implement this, we need to read the manifest for the package.
+	// We can use the same logic as cpm.
+	// Since we are in the daemon, we assume the package is installed in /cognitiveos/patches/
+	manifestPath := filepath.Join("/cognitiveos/patches", payload.Package, "cognitive.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		d.SendError(env, conn, "E_NOT_FOUND", "package manifest not found")
+		return
+	}
+
+	var m struct {
+		Training struct {
+			Tool string `json:"tool"`
+		} `json:"training"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		d.SendError(env, conn, "E_INVALID_MANIFEST", err.Error())
+		return
+	}
+
+	if m.Training.Tool == "" {
+		d.SendError(env, conn, "E_NOT_SUPPORTED", "package does not support tuning")
+		return
+	}
+
+	// Trigger the training via the MCP tool
+	go func() {
+		d.Log.Printf("Triggering tune for %s using tool %s (finalize: %v)", payload.Package, m.Training.Tool, payload.Finalize)
+		
+		args := []map[string]interface{}{
+			{"package": payload.Package, "epochs": payload.Epochs},
+		}
+		if payload.Finalize {
+			args[0]["finalize"] = true
+			args[0]["quantize"] = payload.Quantize
+		}
+		if payload.Background {
+			args[0]["background"] = true
+		}
+
+		// we can use d.mcpMgr.Invoke if the tool is registered
+		// but since this is a system tool, it might need special handling or be a long-running process.
+		// For now, let's use a simplified Invoke call.
+		res, err := d.mcpMgr.Invoke(m.Training.Tool, args[0], "system-tune")
+		if err != nil {
+			d.Log.Printf("tuning tool invoke failed: %v", err)
+			return
+		}
+		d.Log.Printf("tuning result: %s", res.Status)
+		
+		if payload.Finalize {
+			// Signal hot-swap if finalization succeeded
+			adapterPath := filepath.Join("/cognitiveos/patches", payload.Package, "weights", "user_adapter.bin")
+			if err := d.wmClient.LoadAdapter(adapterPath); err != nil {
+				d.Log.Printf("hot-swap failed for %s: %v", payload.Package, err)
+			} else {
+				d.Log.Printf("hot-swap successful for %s: adapter %s bound", payload.Package, adapterPath)
+			}
+		}
+	}()
+
+	d.SendOK(env, conn, map[string]string{"status": "triggered"})
+}
+
 func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	var payload InputPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
