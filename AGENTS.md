@@ -66,3 +66,10 @@ Environment variables / flags:
 | COGNITIVEOS_INFERENCE_URL | --inference | http://127.0.0.1:11434 |
 | COGNITIVEOS_MCP_BIN_DIR | --mcp-bin | /cognitiveos/bin |
 | | --audit-interval | 60 |
+
+## Cloning Convention
+- Use SSH () for development.
+- Use HTTPS () for build scripts that clone public dependencies.
+## Cloning Convention
+- Use SSH (git@github.com:) for development.
+- Use HTTPS (https://github.com/) for build scripts that clone public dependencies.
