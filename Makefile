@@ -7,9 +7,13 @@ BUILD_DIR := build
 BIN_DIR := $(BUILD_DIR)/bin
 GO := go
 
-.PHONY: build test test-integration lint clean pack publish
-
+.PHONY: build test test-integration lint clean pack publish build-dependencies
+ 
+build-dependencies:
+	@echo "No external dependencies for cognitiveosd"
+ 
 build: $(BIN_DIR)/cognitiveosd
+
 
 $(BIN_DIR)/cognitiveosd:
 	@mkdir -p $(BIN_DIR)
