@@ -1,0 +1,9 @@
+{
+  "name": "cognitiveosd",
+  "version": "0.1.0",
+  "description": "CognitiveOS system daemon",
+  "hardware_requirements": {
+    "os": ["linux"],
+    "arch": ["amd64", "arm64"]
+  }
+}

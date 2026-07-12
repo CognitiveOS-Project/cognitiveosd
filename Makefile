@@ -23,7 +23,7 @@ $(BIN_DIR)/cognitiveosd:
 pack: build
 	@VERSION=$$(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 	@CPM=/workspace/cpm/build/bin/cpm
-	@$${CPM} pack --bin $(BIN_DIR)/cognitiveosd --name cognitiveosd --version $$VERSION --os linux --arch amd64 --description "CognitiveOS system daemon"
+	@$${CPM} pack --bin $(BIN_DIR)/cognitiveosd --manifest cognitive.json
 
 publish: pack
 	@if [ -z "$${REGISTRY_TOKEN}" ]; then \
