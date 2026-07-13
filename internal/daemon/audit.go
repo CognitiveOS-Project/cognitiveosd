@@ -93,8 +93,8 @@ func (a *Auditor) readStorage() StorageInfo {
 	var stat syscall.Statfs_t
 	root := "/"
 	if err := syscall.Statfs(root, &stat); err == nil {
-		totalBytes := int64(stat.Blocks) * stat.Bsize
-		availBytes := int64(stat.Bavail) * stat.Bsize
+		totalBytes := int64(stat.Blocks) * int64(stat.Bsize)
+		availBytes := int64(stat.Bavail) * int64(stat.Bsize)
 		totalMB = totalBytes / (1024 * 1024)
 		availableMB = availBytes / (1024 * 1024)
 	}
