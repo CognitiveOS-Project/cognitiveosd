@@ -11,9 +11,10 @@ import (
 )
 
 func main() {
-	cfg := config.FromEnv()
+	cfg := config.FromEnv("/etc/cognitiveos/config.toml")
 
-	flag.StringVar(&cfg.SocketPath, "socket", cfg.SocketPath, "Unix socket path")
+	var socketPath string
+	flag.StringVar(&socketPath, "socket", cfg.SocketPath, "Unix socket path")
 	flag.StringVar(&cfg.RunDir, "run", cfg.RunDir, "runtime directory")
 	flag.StringVar(&cfg.LogDir, "log-dir", cfg.LogDir, "log directory")
 	flag.StringVar(&cfg.ModelDir, "models", cfg.ModelDir, "model directory")
@@ -22,6 +23,13 @@ func main() {
 	flag.StringVar(&cfg.InferenceURL, "inference", cfg.InferenceURL, "inference engine URL")
 	flag.IntVar(&cfg.AuditInterval, "audit-interval", cfg.AuditInterval, "audit interval in seconds")
 	flag.Parse()
+
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "socket" {
+			cfg.SocketPath = socketPath
+			cfg.SocketPathExplicit = true
+		}
+	})
 
 	cfg.Derive()
 

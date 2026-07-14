@@ -3,24 +3,27 @@ package config
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/BurntSushi/toml"
 )
 
 type Config struct {
-	SocketPath    string
-	RawSocketPath string
-	PidFilePath   string
-	LogFile       string
-	ModelDir      string
-	PatchDir      string
-	RunDir        string
-	AuditDir      string
-	LogDir        string
-	InferenceURL  string
-	RegistryURL   string
-	AuditInterval int
-	MCPBinDir     string
-	MCPBridges    []string
+	SocketPath        string
+	RawSocketPath     string
+	PidFilePath       string
+	LogFile           string
+	ModelDir          string
+	PatchDir          string
+	RunDir            string
+	AuditDir          string
+	LogDir            string
+	InferenceURL      string
+	RegistryURL       string
+	AuditInterval     int
+	MCPBinDir         string
+	MCPBridges        []string
 	RawModelPath  string
+	SocketPathExplicit bool
 }
 
 var Default = Config{
@@ -48,10 +51,52 @@ var Default = Config{
 	RawModelPath: "/cognitiveos/models/raw/raw-model.gguf",
 }
 
-func FromEnv() Config {
+func FromTOML(path string) Config {
 	c := Default
+
+	type tomlConfig struct {
+		Daemon struct {
+			SocketPath    string `toml:"socket_path"`
+			AuditInterval int    `toml:"audit_interval_seconds"`
+			MCPBinDir     string `toml:"mcp_bin_dir"`
+		} `toml:"daemon"`
+		RawModel struct {
+			Model string `toml:"model"`
+		} `toml:"raw_model"`
+		Inference struct {
+			Endpoint string `toml:"endpoint"`
+		} `toml:"inference"`
+	}
+
+	var tc tomlConfig
+	if _, err := toml.DecodeFile(path, &tc); err == nil {
+	if tc.Daemon.SocketPath != "" {
+		c.SocketPath = tc.Daemon.SocketPath
+		c.SocketPathExplicit = true
+	}
+		if tc.Daemon.AuditInterval != 0 {
+			c.AuditInterval = tc.Daemon.AuditInterval
+		}
+		if tc.Daemon.MCPBinDir != "" {
+			c.MCPBinDir = tc.Daemon.MCPBinDir
+		}
+		if tc.RawModel.Model != "" {
+			c.RawModelPath = tc.RawModel.Model
+		}
+		if tc.Inference.Endpoint != "" {
+			c.InferenceURL = tc.Inference.Endpoint
+		}
+	}
+
+	return c
+}
+
+func FromEnv(tomlPath string) Config {
+	c := FromTOML(tomlPath)
+
 	if v := os.Getenv("COGNITIVEOS_SOCKET"); v != "" {
 		c.SocketPath = v
+		c.SocketPathExplicit = true
 	}
 	if v := os.Getenv("COGNITIVEOS_MODEL_DIR"); v != "" {
 		c.ModelDir = v
@@ -82,7 +127,9 @@ func FromEnv() Config {
 
 // Derive recalculates paths that depend on RunDir/LogDir after overrides.
 func (c *Config) Derive() {
-	c.SocketPath = filepath.Join(c.RunDir, "daemon.sock")
+	if !c.SocketPathExplicit {
+		c.SocketPath = filepath.Join(c.RunDir, "daemon.sock")
+	}
 	c.RawSocketPath = filepath.Join(c.RunDir, "raw.sock")
 	c.PidFilePath = filepath.Join(c.RunDir, "cognitiveosd.pid")
 	c.LogFile = filepath.Join(c.LogDir, "cognitiveosd.log")
