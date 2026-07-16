@@ -88,11 +88,6 @@ func (d *Daemon) Run() error {
 	d.wmClient = NewWideModelClient(d)
 	d.rmClient = NewRawModelClient(d)
 
-	if err := d.rmClient.Connect(); err != nil {
-		return fmt.Errorf("FATAL: raw model unavailable — system cannot operate safely: %w", err)
-	}
-	d.Log.Println("raw model connected")
-
 	listener, err := NewSocketListener(d)
 	if err != nil {
 		return fmt.Errorf("socket: %w", err)
@@ -100,6 +95,12 @@ func (d *Daemon) Run() error {
 	d.listener = listener
 
 	d.Log.Printf("listening on %s", d.Config.SocketPath)
+
+	if err := d.rmClient.Connect(); err != nil {
+		d.Log.Printf("WARN: raw model unavailable, running in degraded mode: %v", err)
+	} else {
+		d.Log.Println("raw model connected")
+	}
 
 	initialAudit := d.auditor.Collect()
 	d.Log.Printf("initial audit: %d MB RAM available", initialAudit.RAM.AvailableMB)
