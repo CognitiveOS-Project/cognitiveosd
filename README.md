@@ -56,6 +56,7 @@ make build
 - [cli](https://github.com/CognitiveOS-Project/cli) — TUI frontend that connects to this daemon
 - [inference](https://github.com/CognitiveOS-Project/inference) — LLM engine managed by this daemon
 - [core-mcp-bridges](https://github.com/CognitiveOS-Project/core-mcp-bridges) — MCP servers supervised by this daemon
+- [coginit](https://github.com/CognitiveOS-Project/coginit) — boot manager that starts this daemon
 - [Product Specs](https://github.com/CognitiveOS-Project/product-specs) — daemon API specification
 - [CognitiveOS Project](https://github.com/CognitiveOS-Project) — GitHub organization
 
