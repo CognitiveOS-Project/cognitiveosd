@@ -22,8 +22,12 @@ type Config struct {
 	AuditInterval     int
 	MCPBinDir         string
 	MCPBridges        []string
-	RawModelPath  string
+	RawModelPath      string
 	SocketPathExplicit bool
+	CloudAPIBase      string
+	CloudModelID      string
+	CloudAPIKey       string
+	WeightMethod      string
 }
 
 var Default = Config{
@@ -66,6 +70,14 @@ func FromTOML(path string) Config {
 		Inference struct {
 			Endpoint string `toml:"endpoint"`
 		} `toml:"inference"`
+		Weights struct {
+			Method string `toml:"method"`
+			Cloud  struct {
+				APIBase string `toml:"api_base"`
+				ModelID string `toml:"model_id"`
+				APIKey  string `toml:"api_key"`
+			} `toml:"cloud"`
+		} `toml:"weights"`
 	}
 
 	var tc tomlConfig
@@ -85,6 +97,18 @@ func FromTOML(path string) Config {
 		}
 		if tc.Inference.Endpoint != "" {
 			c.InferenceURL = tc.Inference.Endpoint
+		}
+		if tc.Weights.Method != "" {
+			c.WeightMethod = tc.Weights.Method
+		}
+		if tc.Weights.Cloud.APIBase != "" {
+			c.CloudAPIBase = tc.Weights.Cloud.APIBase
+		}
+		if tc.Weights.Cloud.ModelID != "" {
+			c.CloudModelID = tc.Weights.Cloud.ModelID
+		}
+		if tc.Weights.Cloud.APIKey != "" {
+			c.CloudAPIKey = tc.Weights.Cloud.APIKey
 		}
 	}
 
@@ -118,6 +142,18 @@ func FromEnv(tomlPath string) Config {
 	}
 	if v := os.Getenv("COGNITIVEOS_RAW_MODEL_PATH"); v != "" {
 		c.RawModelPath = v
+	}
+	if v := os.Getenv("COGNITIVE_CLOUD_API_BASE"); v != "" {
+		c.CloudAPIBase = v
+	}
+	if v := os.Getenv("COGNITIVE_CLOUD_MODEL_ID"); v != "" {
+		c.CloudModelID = v
+	}
+	if v := os.Getenv("COGNITIVE_CLOUD_API_KEY"); v != "" {
+		c.CloudAPIKey = v
+	}
+	if v := os.Getenv("COGNITIVE_WEIGHT_METHOD"); v != "" {
+		c.WeightMethod = v
 	}
 
 	c.Derive()
