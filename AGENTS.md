@@ -64,7 +64,7 @@ Environment variables / flags:
 | COGNITIVEOS_RUN_DIR | --run | /cognitiveos/run |
 | COGNITIVEOS_LOG_DIR | --log-dir | /cognitiveos/logs |
 | COGNITIVEOS_INFERENCE_URL | --inference | http://127.0.0.1:11434 |
-| COGNITIVEOS_MCP_BIN_DIR | --mcp-bin | /cognitiveos/bin |
+| COGNITIVEOS_MCP_BIN_DIR | --mcp-bin | /usr/local/lib/cognitiveos/bridges |
 | | --audit-interval | 60 |
 
 ## Cloning Convention
