@@ -43,7 +43,7 @@ var Default = Config{
 	InferenceURL:  "http://127.0.0.1:11434",
 	RegistryURL:   "https://registry.cognitiveos.org",
 	AuditInterval: 60,
-	MCPBinDir:     "/cognitiveos/bin",
+	MCPBinDir:     "/usr/local/lib/cognitiveos/bridges",
 	MCPBridges: []string{
 		"display-mcp",
 		"audio-mcp",
