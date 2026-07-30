@@ -219,6 +219,47 @@ func (d *Daemon) scanPatches() {
 	}
 	d.Log.Printf("patches scanned: %d installed", count)
 	d.buildModelRegistry()
+	d.spawnPatchMCPServers()
+}
+
+func (d *Daemon) spawnPatchMCPServers() {
+	entries, err := os.ReadDir(d.Config.PatchDir)
+	if err != nil {
+		d.Log.Printf("spawn patch MCP servers: %v", err)
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		patchName := e.Name()
+		manifestPath := filepath.Join(d.Config.PatchDir, patchName, "cognitive.json")
+		data, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+		var manifest struct {
+			Runtime *struct {
+				MCPServers []string `json:"mcp_servers"`
+			} `json:"runtime"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			continue
+		}
+		if manifest.Runtime == nil || len(manifest.Runtime.MCPServers) == 0 {
+			continue
+		}
+		for _, serverName := range manifest.Runtime.MCPServers {
+			binaryPath := filepath.Join(d.Config.PatchDir, patchName, serverName)
+			if _, err := os.Stat(binaryPath); err != nil {
+				d.Log.Printf("patch %s: MCP server binary not found: %s", patchName, binaryPath)
+				continue
+			}
+			fullName := "patch-" + patchName + "-" + serverName
+			d.Log.Printf("patch %s: spawning MCP server %s", patchName, fullName)
+			go d.mcpMgr.Spawn(fullName, binaryPath)
+		}
+	}
 }
 
 func (d *Daemon) buildModelRegistry() {
