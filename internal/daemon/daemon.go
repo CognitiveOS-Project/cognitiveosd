@@ -222,6 +222,14 @@ func (d *Daemon) scanPatches() {
 	d.spawnPatchMCPServers()
 }
 
+type patchMCPServerObj struct {
+	Name      string            `json:"name"`
+	Command   string            `json:"command"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Transport string            `json:"transport,omitempty"`
+}
+
 func (d *Daemon) spawnPatchMCPServers() {
 	entries, err := os.ReadDir(d.Config.PatchDir)
 	if err != nil {
@@ -240,22 +248,46 @@ func (d *Daemon) spawnPatchMCPServers() {
 		}
 		var manifest struct {
 			Runtime *struct {
-				MCPServers []string `json:"mcp_servers"`
+				MCPServersRaw json.RawMessage `json:"mcp_servers"`
 			} `json:"runtime"`
 		}
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			continue
 		}
-		if manifest.Runtime == nil || len(manifest.Runtime.MCPServers) == 0 {
+		if manifest.Runtime == nil || len(manifest.Runtime.MCPServersRaw) == 0 {
 			continue
 		}
-		for _, serverName := range manifest.Runtime.MCPServers {
-			binaryPath := filepath.Join(d.Config.PatchDir, patchName, serverName)
+
+		var strings []string
+		if err := json.Unmarshal(manifest.Runtime.MCPServersRaw, &strings); err == nil {
+			for _, name := range strings {
+				binaryPath := filepath.Join(d.Config.PatchDir, patchName, name)
+				if _, err := os.Stat(binaryPath); err != nil {
+					d.Log.Printf("patch %s: MCP server binary not found: %s", patchName, binaryPath)
+					continue
+				}
+				fullName := "patch-" + patchName + "-" + name
+				d.Log.Printf("patch %s: spawning MCP server %s", patchName, fullName)
+				go d.mcpMgr.Spawn(fullName, binaryPath)
+			}
+			continue
+		}
+
+		var objects []patchMCPServerObj
+		if err := json.Unmarshal(manifest.Runtime.MCPServersRaw, &objects); err != nil {
+			d.Log.Printf("patch %s: mcp_servers format not recognized", patchName)
+			continue
+		}
+		for _, sv := range objects {
+			binaryPath := sv.Command
+			if !filepath.IsAbs(binaryPath) {
+				binaryPath = filepath.Join(d.Config.PatchDir, patchName, binaryPath)
+			}
 			if _, err := os.Stat(binaryPath); err != nil {
 				d.Log.Printf("patch %s: MCP server binary not found: %s", patchName, binaryPath)
 				continue
 			}
-			fullName := "patch-" + patchName + "-" + serverName
+			fullName := "patch-" + patchName + "-" + sv.Name
 			d.Log.Printf("patch %s: spawning MCP server %s", patchName, fullName)
 			go d.mcpMgr.Spawn(fullName, binaryPath)
 		}
