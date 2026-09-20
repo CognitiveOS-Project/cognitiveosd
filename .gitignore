@@ -24,3 +24,6 @@ Thumbs.db
 * 2.*
 cognitiveosd
 build/
+
+# macOS AppleDouble / Finder metadata
+._*
