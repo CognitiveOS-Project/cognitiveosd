@@ -21,18 +21,18 @@ const idleTimeoutDuration = 5 * time.Minute
 type State string
 
 const (
-	StateIdle           State = "idle"
-	StateIdleRequested  State = "idle_requested"
-	StateListening      State = "listening"
-	StateProcessing     State = "processing"
-	StateSecurity       State = "security"
-	StateShutdown       State = "shutdown"
+	StateIdle          State = "idle"
+	StateIdleRequested State = "idle_requested"
+	StateListening     State = "listening"
+	StateProcessing    State = "processing"
+	StateSecurity      State = "security"
+	StateShutdown      State = "shutdown"
 )
 
 type Daemon struct {
-	Config   config.Config
-	State    State
-	mu       sync.RWMutex
+	Config    config.Config
+	State     State
+	mu        sync.RWMutex
 	startTime time.Time
 
 	listener *SocketListener
@@ -112,7 +112,6 @@ func (d *Daemon) Run() error {
 	d.startTuningMonitor()
 	d.scanPatches()
 
-
 	if err := d.loadWideModel(); err != nil {
 		d.Log.Printf("WARN: auto-load Wide Model: %v", err)
 	}
@@ -191,7 +190,7 @@ func (d *Daemon) startTuningMonitor() {
 
 func (d *Daemon) triggerTune(pkgName string, background bool) {
 	// This is a helper to trigger tuning without needing a socket envelope
-	
+
 	// We reuse the logic from handleCPMTune but without the socket response
 	// For simplicity, I'll implement the core logic in a separate method.
 	// But for now, I'll just log it.
@@ -362,8 +361,8 @@ func (d *Daemon) buildModelRegistry() {
 		}
 
 		d.modelRegistry[routing.ModelID] = ModelRegistryEntry{
-			ModelID:     routing.ModelID,
-			Tags:        routing.Tags,
+			ModelID:      routing.ModelID,
+			Tags:         routing.Tags,
 			GGUFFilePath: ggufPath,
 		}
 		d.Log.Printf("model registry: registered %s (%s)", routing.ModelID, ggufPath)

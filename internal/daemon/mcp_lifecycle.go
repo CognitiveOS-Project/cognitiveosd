@@ -72,7 +72,6 @@ func joinCgroup(pid int, cgPath string) error {
 	return os.WriteFile(procs, []byte(strconv.Itoa(pid)), 0644)
 }
 
-
 func setupSeccomp(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	// NoNewPrivileges requires Go 1.24+ — skip for 1.23 compatibility

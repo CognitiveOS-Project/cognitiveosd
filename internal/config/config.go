@@ -8,26 +8,26 @@ import (
 )
 
 type Config struct {
-	SocketPath        string
-	RawSocketPath     string
-	PidFilePath       string
-	LogFile           string
-	ModelDir          string
-	PatchDir          string
-	RunDir            string
-	AuditDir          string
-	LogDir            string
-	InferenceURL      string
-	RegistryURL       string
-	AuditInterval     int
-	MCPBinDir         string
-	MCPBridges        []string
-	RawModelPath      string
+	SocketPath         string
+	RawSocketPath      string
+	PidFilePath        string
+	LogFile            string
+	ModelDir           string
+	PatchDir           string
+	RunDir             string
+	AuditDir           string
+	LogDir             string
+	InferenceURL       string
+	RegistryURL        string
+	AuditInterval      int
+	MCPBinDir          string
+	MCPBridges         []string
+	RawModelPath       string
 	SocketPathExplicit bool
-	CloudAPIBase      string
-	CloudModelID      string
-	CloudAPIKey       string
-	WeightMethod      string
+	CloudAPIBase       string
+	CloudModelID       string
+	CloudAPIKey        string
+	WeightMethod       string
 }
 
 var Default = Config{
@@ -82,10 +82,10 @@ func FromTOML(path string) Config {
 
 	var tc tomlConfig
 	if _, err := toml.DecodeFile(path, &tc); err == nil {
-	if tc.Daemon.SocketPath != "" {
-		c.SocketPath = tc.Daemon.SocketPath
-		c.SocketPathExplicit = true
-	}
+		if tc.Daemon.SocketPath != "" {
+			c.SocketPath = tc.Daemon.SocketPath
+			c.SocketPathExplicit = true
+		}
 		if tc.Daemon.AuditInterval != 0 {
 			c.AuditInterval = tc.Daemon.AuditInterval
 		}
