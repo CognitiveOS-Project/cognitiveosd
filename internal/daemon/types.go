@@ -16,9 +16,9 @@ type Envelope struct {
 }
 
 type PayloadStatus struct {
-	Status string       `json:"status"`
-	Error  *ErrorInfo   `json:"error,omitempty"`
-	Data   interface{}  `json:"data,omitempty"`
+	Status string      `json:"status"`
+	Error  *ErrorInfo  `json:"error,omitempty"`
+	Data   interface{} `json:"data,omitempty"`
 }
 
 type ErrorInfo struct {
@@ -38,17 +38,17 @@ type InputContext struct {
 }
 
 type OutputPayload struct {
-	SessionID   string      `json:"session_id"`
-	Content     string      `json:"content"`
-	ContentType string      `json:"content_type"`
-	Media       *MediaInfo  `json:"media,omitempty"`
-	Actions     []Action    `json:"actions,omitempty"`
+	SessionID   string     `json:"session_id"`
+	Content     string     `json:"content"`
+	ContentType string     `json:"content_type"`
+	Media       *MediaInfo `json:"media,omitempty"`
+	Actions     []Action   `json:"actions,omitempty"`
 }
 
 type MediaInfo struct {
-	Type          string `json:"type"`
+	Type          string   `json:"type"`
 	Paths         []string `json:"paths"`
-	RenderCommand string `json:"render_command"`
+	RenderCommand string   `json:"render_command"`
 }
 
 type Action struct {
@@ -68,8 +68,8 @@ type CodeAcceptedPayload struct {
 }
 
 type MCPRegisterPayload struct {
-	Server MCPInfo    `json:"server"`
-	Tools  []MCPTool  `json:"tools"`
+	Server MCPInfo   `json:"server"`
+	Tools  []MCPTool `json:"tools"`
 }
 
 type MCPInfo struct {
@@ -96,14 +96,14 @@ type MCPUnregisterPayload struct {
 }
 
 type ToolCall struct {
-	Tool   string                 `json:"tool"`
+	Tool      string                 `json:"tool"`
 	Arguments map[string]interface{} `json:"arguments"`
 }
 
 type MCPResultPayload struct {
-	Status  string         `json:"status"`
-	Error   *ErrorInfo     `json:"error,omitempty"`
-	Content []ContentItem  `json:"content,omitempty"`
+	Status  string        `json:"status"`
+	Error   *ErrorInfo    `json:"error,omitempty"`
+	Content []ContentItem `json:"content,omitempty"`
 }
 
 type ContentItem struct {
@@ -114,8 +114,8 @@ type ContentItem struct {
 type AuditRequestPayload struct{}
 
 type AuditReportPayload struct {
-	Timestamp string          `json:"timestamp"`
-	Resources AuditResources  `json:"resources"`
+	Timestamp string         `json:"timestamp"`
+	Resources AuditResources `json:"resources"`
 }
 
 type AuditResources struct {
@@ -127,20 +127,20 @@ type AuditResources struct {
 }
 
 type RAMInfo struct {
-	TotalMB    int64 `json:"total_mb"`
+	TotalMB     int64 `json:"total_mb"`
 	AvailableMB int64 `json:"available_mb"`
-	UsedByAIMB int64 `json:"used_by_ai_mb"`
+	UsedByAIMB  int64 `json:"used_by_ai_mb"`
 }
 
 type StorageInfo struct {
-	TotalMB   int64 `json:"total_mb"`
+	TotalMB     int64 `json:"total_mb"`
 	AvailableMB int64 `json:"available_mb"`
-	PatchesMB int64 `json:"patches_mb"`
-	ModelsMB  int64 `json:"models_mb"`
+	PatchesMB   int64 `json:"patches_mb"`
+	ModelsMB    int64 `json:"models_mb"`
 }
 
 type CPUInfo struct {
-	Cores      int     `json:"cores"`
+	Cores       int     `json:"cores"`
 	LoadPercent float64 `json:"load_percent"`
 }
 
@@ -159,12 +159,12 @@ type NetworkInfo struct {
 type StatusRequestPayload struct{}
 
 type StatusResponsePayload struct {
-	State            string           `json:"state"`
-	UptimeSeconds    int64            `json:"uptime_seconds"`
-	WideModel        WideModelStatus  `json:"wide_model"`
-	ModelRegistry    int              `json:"model_registry_count"`
-	PatchesInstalled int              `json:"patches_installed"`
-	MCPServersActive int              `json:"mcp_servers_active"`
+	State            string          `json:"state"`
+	UptimeSeconds    int64           `json:"uptime_seconds"`
+	WideModel        WideModelStatus `json:"wide_model"`
+	ModelRegistry    int             `json:"model_registry_count"`
+	PatchesInstalled int             `json:"patches_installed"`
+	MCPServersActive int             `json:"mcp_servers_active"`
 }
 
 type WideModelStatus struct {
@@ -174,9 +174,9 @@ type WideModelStatus struct {
 }
 
 type ModelRegistryEntry struct {
-	ModelID     string   `json:"model_id"`
-	Tags        []string `json:"tags,omitempty"`
-	GGUFFilePath string `json:"gguf_file_path"`
+	ModelID      string   `json:"model_id"`
+	Tags         []string `json:"tags,omitempty"`
+	GGUFFilePath string   `json:"gguf_file_path"`
 }
 
 type WideModelLoadPayload struct {
@@ -186,15 +186,15 @@ type WideModelLoadPayload struct {
 }
 
 type WideModelLoadedPayload struct {
-	Status    string             `json:"status"`
-	Error     *ErrorInfo         `json:"error,omitempty"`
-	ModelInfo *WideModelInfo     `json:"model_info,omitempty"`
+	Status    string         `json:"status"`
+	Error     *ErrorInfo     `json:"error,omitempty"`
+	ModelInfo *WideModelInfo `json:"model_info,omitempty"`
 }
 
 type WideModelInfo struct {
-	Loaded           string  `json:"loaded"`
-	RAMUsageMB       int64   `json:"ram_usage_mb"`
-	TokensPerSecond  float64 `json:"tokens_per_second"`
+	Loaded          string  `json:"loaded"`
+	RAMUsageMB      int64   `json:"ram_usage_mb"`
+	TokensPerSecond float64 `json:"tokens_per_second"`
 }
 
 type WideModelUnloadPayload struct {
@@ -202,8 +202,8 @@ type WideModelUnloadPayload struct {
 }
 
 type WideModelUnloadedPayload struct {
-	Status    string `json:"status"`
-	RAMFreedMB int64 `json:"ram_freed_mb"`
+	Status     string `json:"status"`
+	RAMFreedMB int64  `json:"ram_freed_mb"`
 }
 
 type ShutdownNoticePayload struct {
@@ -211,9 +211,9 @@ type ShutdownNoticePayload struct {
 }
 
 type PackageValidationParams struct {
-	Operation        string                  `json:"operation"`
-	PackageName      string                  `json:"package_name"`
-	Version          string                  `json:"version,omitempty"`
+	Operation        string                   `json:"operation"`
+	PackageName      string                   `json:"package_name"`
+	Version          string                   `json:"version,omitempty"`
 	ManifestMetadata *PackageManifestMetadata `json:"manifest_metadata,omitempty"`
 }
 
@@ -231,11 +231,11 @@ type PackageValidationResult struct {
 }
 
 type PackageRegistryManifest struct {
-	Name      string `json:"name"`
-	Version   string `json:"version"`
-	HasRawModel bool `json:"has_raw_model,omitempty"`
-	IsCritical  bool `json:"is_critical,omitempty"`
-	DiskSpaceMB int64 `json:"disk_space_mb,omitempty"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	HasRawModel bool   `json:"has_raw_model,omitempty"`
+	IsCritical  bool   `json:"is_critical,omitempty"`
+	DiskSpaceMB int64  `json:"disk_space_mb,omitempty"`
 	Registry    string `json:"registry,omitempty"`
 }
 

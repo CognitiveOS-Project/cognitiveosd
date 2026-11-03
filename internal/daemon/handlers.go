@@ -55,7 +55,7 @@ func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
 	// Trigger the training via the MCP tool
 	go func() {
 		d.Log.Printf("Triggering tune for %s using tool %s (finalize: %v)", payload.Package, m.Training.Tool, payload.Finalize)
-		
+
 		args := []map[string]interface{}{
 			{"package": payload.Package, "epochs": payload.Epochs},
 		}
@@ -76,7 +76,7 @@ func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
 			return
 		}
 		d.Log.Printf("tuning result: %s", res.Status)
-		
+
 		if payload.Finalize {
 			// Signal hot-swap if finalization succeeded
 			adapterPath := filepath.Join("/cognitiveos/patches", payload.Package, "weights", "user_adapter.bin")
@@ -158,7 +158,6 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	case "allow":
 	}
 
-
 	if modelID != "" {
 		if err := d.hotSwapWideModel(modelID); err != nil {
 			d.Log.Printf("hot-swap to %s failed: %v, using current model", modelID, err)
@@ -200,7 +199,6 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	}
 	d.SetState(StateListening)
 }
-
 
 func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, []string) {
 	currentResponse := response
@@ -396,18 +394,17 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 
 	effect := ""
 
-		if d.rmClient.IsReady() {
-			status, _, err := d.rmClient.ValidateSystemCode(code, origin)
-			if err != nil {
-				d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
-				return
-			}
-			if status != "valid" {
-				d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
-				return
-			}
+	if d.rmClient.IsReady() {
+		status, _, err := d.rmClient.ValidateSystemCode(code, origin)
+		if err != nil {
+			d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
+			return
 		}
-
+		if status != "valid" {
+			d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
+			return
+		}
+	}
 
 	switch code {
 	case "wake":
@@ -422,7 +419,6 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 		}
 		d.mcpMgr.ShutdownAll()
 		d.SetState(StateIdle)
-
 
 	case "security":
 		effect = "SECURITY SHUTDOWN: terminating all processes"

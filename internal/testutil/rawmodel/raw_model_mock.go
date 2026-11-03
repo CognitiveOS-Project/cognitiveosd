@@ -11,8 +11,8 @@ import (
 )
 
 type HealthcheckResult struct {
-	Status       string `json:"status"`
-	ModelLoaded  bool   `json:"model_loaded"`
+	Status      string `json:"status"`
+	ModelLoaded bool   `json:"model_loaded"`
 }
 
 type ValidateSystemCodeResult struct {
@@ -70,7 +70,7 @@ type HandlerFunc func(params json.RawMessage) (interface{}, error)
 type Mock struct {
 	SocketPath string
 	mu         sync.RWMutex
-	listener *net.UnixListener
+	listener   *net.UnixListener
 	done       chan struct{}
 	wg         sync.WaitGroup
 	handlers   map[string]HandlerFunc
