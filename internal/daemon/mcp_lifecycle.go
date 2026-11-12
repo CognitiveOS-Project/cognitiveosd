@@ -82,7 +82,7 @@ type MCPServer struct {
 	Name    string
 	Info    MCPInfo
 	Tools   []MCPTool
-	Conn    *ClientConn
+	Conn    Conn
 	Process *exec.Cmd
 	Stdin   *json.Encoder
 	Stdout  *bufio.Scanner
@@ -175,7 +175,7 @@ func (m *MCPManager) RegisterProcess(name string, server *MCPServer) {
 	m.servers[name] = server
 }
 
-func (m *MCPManager) Register(name string, tools []MCPTool, conn *ClientConn) {
+func (m *MCPManager) Register(name string, tools []MCPTool, conn Conn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
