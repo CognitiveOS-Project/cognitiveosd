@@ -9,7 +9,13 @@ import (
 	"time"
 )
 
-func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
+// Conn is the interface for client connections used by handlers.
+type Conn interface {
+	Send(env Envelope) error
+	Close()
+}
+
+func (d *Daemon) handleCPMTune(env Envelope, conn Conn) {
 	var payload struct {
 		Package    string `json:"package"`
 		Background bool   `json:"background"`
@@ -91,7 +97,7 @@ func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
 	d.SendOK(env, conn, map[string]string{"status": "triggered"})
 }
 
-func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleInputForward(env Envelope, conn Conn) {
 	var payload InputPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -322,7 +328,7 @@ func parseToolCalls(response string) []ToolCall {
 	return calls
 }
 
-func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleWideModelLoad(env Envelope, conn Conn) {
 	var payload WideModelLoadPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -353,7 +359,7 @@ func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {
 	})
 }
 
-func (d *Daemon) handleWideModelUnload(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleWideModelUnload(env Envelope, conn Conn) {
 	var payload WideModelUnloadPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -376,7 +382,7 @@ func (d *Daemon) handleWideModelUnload(env Envelope, conn *ClientConn) {
 	})
 }
 
-func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleSystemCode(env Envelope, conn Conn) {
 	var payload SystemCodePayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -469,7 +475,7 @@ func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	d.SendOK(env, conn, CodeAcceptedPayload{Status: "ok", Effect: effect})
 }
 
-func (d *Daemon) handleMCPRegister(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleMCPRegister(env Envelope, conn Conn) {
 	var payload MCPRegisterPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -498,7 +504,7 @@ func (d *Daemon) handleMCPRegister(env Envelope, conn *ClientConn) {
 	d.Log.Printf("MCP server registered: %s (%d tools)", serverName, len(payload.Tools))
 }
 
-func (d *Daemon) handleMCPUnregister(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleMCPUnregister(env Envelope, conn Conn) {
 	var payload MCPUnregisterPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -516,7 +522,7 @@ func (d *Daemon) handleMCPUnregister(env Envelope, conn *ClientConn) {
 	d.Log.Printf("MCP server unregistered: %s (reason: %s)", serverID, payload.Reason)
 }
 
-func (d *Daemon) handleMCPResult(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleMCPResult(env Envelope, conn Conn) {
 	var payload MCPResultPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -526,7 +532,7 @@ func (d *Daemon) handleMCPResult(env Envelope, conn *ClientConn) {
 	d.Log.Printf("MCP result from %s: status=%s", env.From, payload.Status)
 }
 
-func (d *Daemon) handleAuditRequest(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleAuditRequest(env Envelope, conn Conn) {
 	report := d.auditor.Collect()
 
 	d.SendOK(env, conn, AuditReportPayload{
@@ -535,7 +541,7 @@ func (d *Daemon) handleAuditRequest(env Envelope, conn *ClientConn) {
 	})
 }
 
-func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
+func (d *Daemon) handleStatusRequest(env Envelope, conn Conn) {
 	state := string(d.CurrentState())
 	uptime := int64(d.Uptime().Seconds())
 

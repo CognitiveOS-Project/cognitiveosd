@@ -38,8 +38,8 @@ type Daemon struct {
 	listener *SocketListener
 	mcpMgr   *MCPManager
 	auditor  *Auditor
-	wmClient *WideModelClient
-	rmClient *RawModelClient
+	wmClient WideModelClientI
+	rmClient RawModelClientI
 
 	clients   map[string]*ClientConn
 	clientsMu sync.RWMutex
@@ -53,6 +53,32 @@ type Daemon struct {
 	lastRequest time.Time
 
 	Log *log.Logger
+}
+
+// WideModelClientI is the interface for the Wide Model client used by Daemon
+type WideModelClientI interface {
+	Load(modelPath string) error
+	LoadWithID(modelPath, modelID string) error
+	Unload(reason string) error
+	LoadAdapter(adapterPath string) error
+	IsLoaded() bool
+	LoadedModelName() string
+	LoadedModelID() string
+	Generate(prompt string) (string, error)
+	SetSystemPrompt(prompt string)
+	Health() bool
+}
+
+// RawModelClientI is the interface for the Raw Model client used by Daemon
+type RawModelClientI interface {
+	Connect() error
+	IsReady() bool
+	ValidateSystemCode(code, origin string) (string, string, error)
+	CheckUnlockCode(code, patchName string) (string, string, error)
+	ValidatePrompt(prompt string, hints map[string][]string) (string, string, string, string, error)
+	ValidatePackageRequest(params PackageValidationParams) (PackageValidationResult, error)
+	AuditResources(requestedMB int64) (bool, int64, int64, bool, error)
+	Close()
 }
 
 func New(cfg config.Config) *Daemon {
@@ -716,7 +742,7 @@ func (d *Daemon) HandleMessage(env Envelope, conn *ClientConn) {
 	}
 }
 
-func (d *Daemon) SendError(env Envelope, conn *ClientConn, code, message string) {
+func (d *Daemon) SendError(env Envelope, conn Conn, code, message string) {
 	status := ErrorPayload(code, message)
 	resp := Envelope{
 		Type:      responseType(env.Type),
@@ -730,7 +756,7 @@ func (d *Daemon) SendError(env Envelope, conn *ClientConn, code, message string)
 	}
 }
 
-func (d *Daemon) SendOK(env Envelope, conn *ClientConn, data interface{}) {
+func (d *Daemon) SendOK(env Envelope, conn Conn, data interface{}) {
 	resp := Envelope{
 		Type:      responseType(env.Type),
 		ID:        env.ID,
