@@ -18,11 +18,11 @@ import (
 )
 
 type daemonTestEnv struct {
-	t           *testing.T
-	rawMock     *rawmodel.Mock
-	daemonCmd   *exec.Cmd
-	daemonSock  string
-	done        chan struct{}
+	t          *testing.T
+	rawMock    *rawmodel.Mock
+	daemonCmd  *exec.Cmd
+	daemonSock string
+	done       chan struct{}
 }
 
 func (env *daemonTestEnv) cleanup() {
@@ -221,7 +221,7 @@ type envelope struct {
 }
 
 type payloadStatus struct {
-	Status string      `json:"status"`
+	Status string `json:"status"`
 	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
