@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CognitiveOS-Project/cogsdk/client/coginfer"
+	"github.com/CognitiveOS-Project/cogsdk/client/cograw"
 	"github.com/CognitiveOS-Project/cognitiveosd/internal/config"
 )
 
@@ -38,8 +40,8 @@ type Daemon struct {
 	listener *SocketListener
 	mcpMgr   *MCPManager
 	auditor  *Auditor
-	wmClient *WideModelClient
-	rmClient *RawModelClient
+	wmClient *coginfer.Client
+	rmClient *cograw.Client
 
 	clients   map[string]*ClientConn
 	clientsMu sync.RWMutex
@@ -85,8 +87,12 @@ func (d *Daemon) Run() error {
 
 	d.mcpMgr = NewMCPManager(d)
 	d.auditor = NewAuditor(d)
-	d.wmClient = NewWideModelClient(d)
-	d.rmClient = NewRawModelClient(d)
+	d.wmClient = coginfer.NewClient(d.Config.InferenceURL)
+	var err error
+	d.rmClient, err = cograw.NewClient(d.Config.RawSocketPath)
+	if err != nil {
+		return fmt.Errorf("raw model connection: %w", err)
+	}
 
 	listener, err := NewSocketListener(d)
 	if err != nil {
