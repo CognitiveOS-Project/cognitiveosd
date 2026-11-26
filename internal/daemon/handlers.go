@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/CognitiveOS-Project/cogsdk/client/cograw"
 )
 
 func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
@@ -219,7 +221,7 @@ func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, [
 				pkgName, _ := tc.Arguments["name"].(string)
 				version, _ := tc.Arguments["version"].(string)
 
-				var manifestMeta *PackageManifestMetadata
+				var manifestMeta *cograw.PackageManifestMetadata
 				if op == "install" || op == "update" {
 					pkg := pkgName
 					if pkg == "" {
@@ -228,11 +230,19 @@ func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, [
 						}
 					}
 					if pkg != "" {
-						manifestMeta = d.mcpMgr.fetchManifestMetadata(d.Config.RegistryURL, pkg, version)
+						mm := d.mcpMgr.fetchManifestMetadata(d.Config.RegistryURL, pkg, version)
+						if mm != nil {
+							manifestMeta = &cograw.PackageManifestMetadata{
+								HasRawModel: mm.HasRawModel,
+								DiskSpaceMB: mm.DiskSpaceMB,
+								Registry:    mm.Registry,
+								IsCritical:  mm.IsCritical,
+							}
+						}
 					}
 				}
 
-				validationParams := PackageValidationParams{
+				validationParams := cograw.ValidationParams{
 					Operation:        op,
 					PackageName:      pkgName,
 					Version:          version,
