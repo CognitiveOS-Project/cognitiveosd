@@ -9,13 +9,7 @@ import (
 	"time"
 )
 
-// Conn is the interface for client connections used by handlers.
-type Conn interface {
-	Send(env Envelope) error
-	Close()
-}
-
-func (d *Daemon) handleCPMTune(env Envelope, conn Conn) {
+func (d *Daemon) handleCPMTune(env Envelope, conn *ClientConn) {
 	var payload struct {
 		Package    string `json:"package"`
 		Background bool   `json:"background"`
@@ -61,7 +55,7 @@ func (d *Daemon) handleCPMTune(env Envelope, conn Conn) {
 	// Trigger the training via the MCP tool
 	go func() {
 		d.Log.Printf("Triggering tune for %s using tool %s (finalize: %v)", payload.Package, m.Training.Tool, payload.Finalize)
-		
+
 		args := []map[string]interface{}{
 			{"package": payload.Package, "epochs": payload.Epochs},
 		}
@@ -82,7 +76,7 @@ func (d *Daemon) handleCPMTune(env Envelope, conn Conn) {
 			return
 		}
 		d.Log.Printf("tuning result: %s", res.Status)
-		
+
 		if payload.Finalize {
 			// Signal hot-swap if finalization succeeded
 			adapterPath := filepath.Join("/cognitiveos/patches", payload.Package, "weights", "user_adapter.bin")
@@ -97,7 +91,7 @@ func (d *Daemon) handleCPMTune(env Envelope, conn Conn) {
 	d.SendOK(env, conn, map[string]string{"status": "triggered"})
 }
 
-func (d *Daemon) handleInputForward(env Envelope, conn Conn) {
+func (d *Daemon) handleInputForward(env Envelope, conn *ClientConn) {
 	var payload InputPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -164,7 +158,6 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	case "allow":
 	}
 
-
 	if modelID != "" {
 		if err := d.hotSwapWideModel(modelID); err != nil {
 			d.Log.Printf("hot-swap to %s failed: %v, using current model", modelID, err)
@@ -206,7 +199,6 @@ func (d *Daemon) processPrompt(prompt, sessionID, from string) {
 	}
 	d.SetState(StateListening)
 }
-
 
 func (d *Daemon) toolLoop(response, originalPrompt, sessionID string) (string, []string) {
 	currentResponse := response
@@ -328,7 +320,7 @@ func parseToolCalls(response string) []ToolCall {
 	return calls
 }
 
-func (d *Daemon) handleWideModelLoad(env Envelope, conn Conn) {
+func (d *Daemon) handleWideModelLoad(env Envelope, conn *ClientConn) {
 	var payload WideModelLoadPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -359,7 +351,7 @@ func (d *Daemon) handleWideModelLoad(env Envelope, conn Conn) {
 	})
 }
 
-func (d *Daemon) handleWideModelUnload(env Envelope, conn Conn) {
+func (d *Daemon) handleWideModelUnload(env Envelope, conn *ClientConn) {
 	var payload WideModelUnloadPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -382,7 +374,7 @@ func (d *Daemon) handleWideModelUnload(env Envelope, conn Conn) {
 	})
 }
 
-func (d *Daemon) handleSystemCode(env Envelope, conn Conn) {
+func (d *Daemon) handleSystemCode(env Envelope, conn *ClientConn) {
 	var payload SystemCodePayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -402,18 +394,17 @@ func (d *Daemon) handleSystemCode(env Envelope, conn Conn) {
 
 	effect := ""
 
-		if d.rmClient.IsReady() {
-			status, _, err := d.rmClient.ValidateSystemCode(code, origin)
-			if err != nil {
-				d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
-				return
-			}
-			if status != "valid" {
-				d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
-				return
-			}
+	if d.rmClient.IsReady() {
+		status, _, err := d.rmClient.ValidateSystemCode(code, origin)
+		if err != nil {
+			d.SendError(env, conn, "E_RAW_MODEL_ERROR", err.Error())
+			return
 		}
-
+		if status != "valid" {
+			d.SendError(env, conn, "E_INVALID_CODE", "system code rejected by raw model")
+			return
+		}
+	}
 
 	switch code {
 	case "wake":
@@ -428,7 +419,6 @@ func (d *Daemon) handleSystemCode(env Envelope, conn Conn) {
 		}
 		d.mcpMgr.ShutdownAll()
 		d.SetState(StateIdle)
-
 
 	case "security":
 		effect = "SECURITY SHUTDOWN: terminating all processes"
@@ -475,7 +465,7 @@ func (d *Daemon) handleSystemCode(env Envelope, conn Conn) {
 	d.SendOK(env, conn, CodeAcceptedPayload{Status: "ok", Effect: effect})
 }
 
-func (d *Daemon) handleMCPRegister(env Envelope, conn Conn) {
+func (d *Daemon) handleMCPRegister(env Envelope, conn *ClientConn) {
 	var payload MCPRegisterPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -504,7 +494,7 @@ func (d *Daemon) handleMCPRegister(env Envelope, conn Conn) {
 	d.Log.Printf("MCP server registered: %s (%d tools)", serverName, len(payload.Tools))
 }
 
-func (d *Daemon) handleMCPUnregister(env Envelope, conn Conn) {
+func (d *Daemon) handleMCPUnregister(env Envelope, conn *ClientConn) {
 	var payload MCPUnregisterPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -522,7 +512,7 @@ func (d *Daemon) handleMCPUnregister(env Envelope, conn Conn) {
 	d.Log.Printf("MCP server unregistered: %s (reason: %s)", serverID, payload.Reason)
 }
 
-func (d *Daemon) handleMCPResult(env Envelope, conn Conn) {
+func (d *Daemon) handleMCPResult(env Envelope, conn *ClientConn) {
 	var payload MCPResultPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		d.SendError(env, conn, "E_INVALID_PAYLOAD", err.Error())
@@ -532,7 +522,7 @@ func (d *Daemon) handleMCPResult(env Envelope, conn Conn) {
 	d.Log.Printf("MCP result from %s: status=%s", env.From, payload.Status)
 }
 
-func (d *Daemon) handleAuditRequest(env Envelope, conn Conn) {
+func (d *Daemon) handleAuditRequest(env Envelope, conn *ClientConn) {
 	report := d.auditor.Collect()
 
 	d.SendOK(env, conn, AuditReportPayload{
@@ -541,7 +531,7 @@ func (d *Daemon) handleAuditRequest(env Envelope, conn Conn) {
 	})
 }
 
-func (d *Daemon) handleStatusRequest(env Envelope, conn Conn) {
+func (d *Daemon) handleStatusRequest(env Envelope, conn *ClientConn) {
 	state := string(d.CurrentState())
 	uptime := int64(d.Uptime().Seconds())
 

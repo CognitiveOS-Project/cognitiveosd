@@ -72,7 +72,6 @@ func joinCgroup(pid int, cgPath string) error {
 	return os.WriteFile(procs, []byte(strconv.Itoa(pid)), 0644)
 }
 
-
 func setupSeccomp(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	// NoNewPrivileges requires Go 1.24+ — skip for 1.23 compatibility
@@ -82,7 +81,7 @@ type MCPServer struct {
 	Name    string
 	Info    MCPInfo
 	Tools   []MCPTool
-	Conn    Conn
+	Conn    *ClientConn
 	Process *exec.Cmd
 	Stdin   *json.Encoder
 	Stdout  *bufio.Scanner
@@ -175,7 +174,7 @@ func (m *MCPManager) RegisterProcess(name string, server *MCPServer) {
 	m.servers[name] = server
 }
 
-func (m *MCPManager) Register(name string, tools []MCPTool, conn Conn) {
+func (m *MCPManager) Register(name string, tools []MCPTool, conn *ClientConn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
