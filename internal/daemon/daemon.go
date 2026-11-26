@@ -21,25 +21,25 @@ const idleTimeoutDuration = 5 * time.Minute
 type State string
 
 const (
-	StateIdle           State = "idle"
-	StateIdleRequested  State = "idle_requested"
-	StateListening      State = "listening"
-	StateProcessing     State = "processing"
-	StateSecurity       State = "security"
-	StateShutdown       State = "shutdown"
+	StateIdle          State = "idle"
+	StateIdleRequested State = "idle_requested"
+	StateListening     State = "listening"
+	StateProcessing    State = "processing"
+	StateSecurity      State = "security"
+	StateShutdown      State = "shutdown"
 )
 
 type Daemon struct {
-	Config   config.Config
-	State    State
-	mu       sync.RWMutex
+	Config    config.Config
+	State     State
+	mu        sync.RWMutex
 	startTime time.Time
 
 	listener *SocketListener
 	mcpMgr   *MCPManager
 	auditor  *Auditor
-	wmClient WideModelClientI
-	rmClient RawModelClientI
+	wmClient *WideModelClient
+	rmClient *RawModelClient
 
 	clients   map[string]*ClientConn
 	clientsMu sync.RWMutex
@@ -53,32 +53,6 @@ type Daemon struct {
 	lastRequest time.Time
 
 	Log *log.Logger
-}
-
-// WideModelClientI is the interface for the Wide Model client used by Daemon
-type WideModelClientI interface {
-	Load(modelPath string) error
-	LoadWithID(modelPath, modelID string) error
-	Unload(reason string) error
-	LoadAdapter(adapterPath string) error
-	IsLoaded() bool
-	LoadedModelName() string
-	LoadedModelID() string
-	Generate(prompt string) (string, error)
-	SetSystemPrompt(prompt string)
-	Health() bool
-}
-
-// RawModelClientI is the interface for the Raw Model client used by Daemon
-type RawModelClientI interface {
-	Connect() error
-	IsReady() bool
-	ValidateSystemCode(code, origin string) (string, string, error)
-	CheckUnlockCode(code, patchName string) (string, string, error)
-	ValidatePrompt(prompt string, hints map[string][]string) (string, string, string, string, error)
-	ValidatePackageRequest(params PackageValidationParams) (PackageValidationResult, error)
-	AuditResources(requestedMB int64) (bool, int64, int64, bool, error)
-	Close()
 }
 
 func New(cfg config.Config) *Daemon {
@@ -137,7 +111,6 @@ func (d *Daemon) Run() error {
 	d.mcpMgr.StartHealthchecks()
 	d.startTuningMonitor()
 	d.scanPatches()
-
 
 	if err := d.loadWideModel(); err != nil {
 		d.Log.Printf("WARN: auto-load Wide Model: %v", err)
@@ -217,7 +190,7 @@ func (d *Daemon) startTuningMonitor() {
 
 func (d *Daemon) triggerTune(pkgName string, background bool) {
 	// This is a helper to trigger tuning without needing a socket envelope
-	
+
 	// We reuse the logic from handleCPMTune but without the socket response
 	// For simplicity, I'll implement the core logic in a separate method.
 	// But for now, I'll just log it.
@@ -388,8 +361,8 @@ func (d *Daemon) buildModelRegistry() {
 		}
 
 		d.modelRegistry[routing.ModelID] = ModelRegistryEntry{
-			ModelID:     routing.ModelID,
-			Tags:        routing.Tags,
+			ModelID:      routing.ModelID,
+			Tags:         routing.Tags,
 			GGUFFilePath: ggufPath,
 		}
 		d.Log.Printf("model registry: registered %s (%s)", routing.ModelID, ggufPath)
@@ -742,7 +715,7 @@ func (d *Daemon) HandleMessage(env Envelope, conn *ClientConn) {
 	}
 }
 
-func (d *Daemon) SendError(env Envelope, conn Conn, code, message string) {
+func (d *Daemon) SendError(env Envelope, conn *ClientConn, code, message string) {
 	status := ErrorPayload(code, message)
 	resp := Envelope{
 		Type:      responseType(env.Type),
@@ -756,7 +729,7 @@ func (d *Daemon) SendError(env Envelope, conn Conn, code, message string) {
 	}
 }
 
-func (d *Daemon) SendOK(env Envelope, conn Conn, data interface{}) {
+func (d *Daemon) SendOK(env Envelope, conn *ClientConn, data interface{}) {
 	resp := Envelope{
 		Type:      responseType(env.Type),
 		ID:        env.ID,
